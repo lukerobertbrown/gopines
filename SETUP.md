@@ -81,3 +81,5 @@ Add a workflow later that runs `npm ci`, `npm run build`, and deploys using **Wo
 ## Secrets
 
 Store `MTA_API_KEY` in **Secret Manager** and grant the Functions runtime service account **Secret Accessor**. Do not commit API keys; keep `.env` local and listed in `.gitignore`.
+
+**Static LIRR timetables** (`getLirrSchedule`, `/api/lirrSchedule`) use the public GTFS zip on AWS (`gtfslirr.zip`) and do **not** need the MTA API key. The key is for **GTFS-Realtime** and other `api-endpoint.mta.info` feeds.

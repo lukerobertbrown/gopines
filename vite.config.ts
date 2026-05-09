@@ -7,4 +7,12 @@ export default defineConfig({
     outDir: "dist",
     emptyDirBeforeWrite: true,
   },
+  server: {
+    proxy: {
+      "/api": {
+        target: "https://gopines.web.app",
+        changeOrigin: true,
+      },
+    },
+  },
 });
