@@ -1,0 +1,28 @@
+{
+  "functions": [
+    {
+      "source": "functions/getLIRRDepartures",
+      "codebase": "lirr",
+      "ignore": ["node_modules", ".git", "firebase-debug.log", "*.local"]
+    },
+    {
+      "source": "functions/getFerrySchedule",
+      "codebase": "ferry",
+      "ignore": ["node_modules", ".git", "firebase-debug.log", "*.local"]
+    }
+  ],
+  "hosting": {
+    "public": "dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  }
+}
