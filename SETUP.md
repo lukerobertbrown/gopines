@@ -5,14 +5,15 @@ Use this folder as the single workspace in Cursor. These steps link Git, Firebas
 ## Prerequisites
 
 - [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`)
-- [Firebase CLI](https://firebase.google.com/docs/cli): `npm install -g firebase-tools`
+- **Firebase CLI:** installed locally in this repo (`firebase-tools`). Use `npm run firebase -- <args>` so you never depend on a global `firebase` on your `PATH`. (Optional: `npm install -g firebase-tools` if you want `firebase` everywhere.)
 - [GitHub CLI](https://cli.github.com/) (optional): `brew install gh`
 
 ## 1. Firebase and GCP on your machine
 
 ```bash
 gcloud auth login
-firebase login
+npm install
+npm run firebase -- login
 gcloud auth application-default login
 ```
 
@@ -20,10 +21,10 @@ Point tools at **your** project (replace `gopines` if your Firebase/GCP **projec
 
 ```bash
 gcloud config set project gopines
-firebase use gopines
+npm run firebase -- use gopines
 ```
 
-If `firebase use` fails, run `firebase projects:list` and use the exact **Project ID** from that list. Update `.firebaserc` so `"default"` matches.
+If `firebase use` fails, run `npm run firebase -- projects:list` and use the exact **Project ID** from that list. Update `.firebaserc` so `"default"` matches.
 
 ## 2. Git + GitHub
 
@@ -60,15 +61,17 @@ npm install --prefix functions/getFerrySchedule
 
 ## 4. Deploy
 
+Builds the Vite app, then deploys Hosting + Functions + Firestore rules:
+
 ```bash
-firebase deploy
+npm run deploy
 ```
 
 Deploy only Hosting or only Functions if you prefer:
 
 ```bash
-firebase deploy --only hosting
-firebase deploy --only functions
+npm run firebase -- deploy --only hosting
+npm run firebase -- deploy --only functions
 ```
 
 ## 5. Optional: GitHub Actions
