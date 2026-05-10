@@ -1607,8 +1607,20 @@ export function App() {
       <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0 10px' }}>
         <Wave width={120} />
       </div>
-      <div style={{ textAlign: 'center', fontFamily: F.hand, fontSize: 13, color: '#9b958c', paddingBottom: 24 }}>
+      <div style={{ textAlign: 'center', fontFamily: F.hand, fontSize: 13, color: '#9b958c', paddingBottom: 8 }}>
         ferry data scraped daily · LIRR via open feed
+      </div>
+      <div style={{ textAlign: 'center', paddingBottom: 24 }}>
+        <a
+          href={`https://github.com/lukerobertbrown/gopines/issues/new?template=bug_report.md&title=[Bug]+&body=${encodeURIComponent(
+            `**Date selected:** ${dates[dateIdx]?.dateStr ?? 'unknown'}\n**Direction:** ${direction}\n**Browser:** ${navigator.userAgent}\n\n---\n\n`
+          )}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontFamily: F.hand, fontSize: 13, color: '#9b958c', textDecoration: 'underline' }}
+        >
+          report a bug
+        </a>
       </div>
 
       <MenuPanel view={panel} setView={setPanel} ferryData={ferryData} ferryMock={ferryMock} />

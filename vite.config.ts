@@ -8,6 +8,7 @@ export default defineConfig({
     emptyDirBeforeWrite: true,
   },
   server: {
+    port: process.env.PORT ? parseInt(process.env.PORT) : 5173,
     proxy: {
       "/api": {
         target: "https://gopines.web.app",
