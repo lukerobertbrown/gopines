@@ -279,9 +279,15 @@ function geometryParse(ann) {
       if (!sec) continue;
 
       // Cherry-Grove-stop indicator: the source schedule prints a ▲ next to
-      // boats that make the extra stop at Cherry Grove on the way to/from
-      // Fire Island Pines. Vision OCR preserves the character on the row.
-      const extraStops = /▲/.test(text);
+      // boats that make the extra stop at Cherry Grove. Vision OCR sometimes
+      // assigns the ▲ to a low cx and so it lands in the left page-half even
+      // when the marker visually sits next to a right-half time. To salvage
+      // that, we ALSO check the pre-split full-page line at the same Y, so a
+      // ▲ anywhere on a row tags both halves' trips on that row.
+      const triangleAnywhere = /[▲△▴▵]/;
+      const fullLine = fullPageLines.find((l) => Math.abs(l.cy - line.cy) < 8);
+      const fullText = fullLine ? fullLine.words.map((w) => w.text).join(" ") : "";
+      const extraStops = triangleAnywhere.test(text) || triangleAnywhere.test(fullText);
 
       if (times.length >= 2) {
         trips.push({
