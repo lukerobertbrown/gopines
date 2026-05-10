@@ -1,11 +1,11 @@
-import { useState, useEffect, type CSSProperties, type ReactNode, type MouseEvent } from "react";
+import { useState, useEffect, useContext, createContext, type CSSProperties, type ReactNode, type MouseEvent } from "react";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 // Palette ported from the GoDash design (DoorDash-styled re-skin). `coral` and
 // `gold` collapse to the same DoorDash red — that's the design intent. `yellow`
 // is an off-palette literal kept around for sprites that need to stay yellow
 // (sun, sparkle) regardless of the brand red elsewhere.
-const C = {
+const GODASH_PALETTE = {
   sand:  '#FAF6F0',  // very subtle warm white — page background
   paper: '#FFFFFF',  // card / header background
   ink:   '#191919',  // DoorDash near-black
@@ -20,6 +20,25 @@ const C = {
   mint:  '#EEF1F4',  // soft cool grey — bus body
   yellow:'#FFC60A',  // off-palette literal for sun/sparkle sprites
 } as const;
+
+// Module-level alias — used by non-component utilities (slInfo, etc.).
+// Components shadow this with `const C = useTheme()` at their function top.
+const C = GODASH_PALETTE;
+
+type SkinPalette = typeof GODASH_PALETTE;
+
+type Skin = {
+  id: string;
+  label: string;
+  palette: SkinPalette;
+};
+
+const SKINS: Skin[] = [
+  { id: 'godash-may26', label: "DoorDash - May'26", palette: GODASH_PALETTE },
+];
+
+const ThemeContext = createContext<SkinPalette>(GODASH_PALETTE);
+const useTheme = () => useContext(ThemeContext);
 
 const F = {
   hand:   "'Patrick Hand', cursive",
@@ -356,6 +375,7 @@ function Seagull({ size = 18, color = C.ink, style = {} }: { size?: number; colo
 }
 
 function Sparkle({ size = 14, style = {} }: { size?: number; style?: CSSProperties }) {
+  const C = useTheme();
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" style={style}>
       <path d="M10 1 L11.5 8.5 L19 10 L11.5 11.5 L10 19 L8.5 11.5 L1 10 L8.5 8.5 Z"
@@ -365,6 +385,7 @@ function Sparkle({ size = 14, style = {} }: { size?: number; style?: CSSProperti
 }
 
 function Sun({ size = 60, style = {} }: { size?: number; style?: CSSProperties }) {
+  const C = useTheme();
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={style}>
       <g filter="url(#wobble)">
@@ -393,6 +414,7 @@ function Wave({ width = 80, color = C.ocean, style = {} }: { width?: number; col
 }
 
 function Train({ size = 52, puff = false, style = {} }: { size?: number; puff?: boolean; style?: CSSProperties }) {
+  const C = useTheme();
   return (
     <svg width={size} height={size * 0.62} viewBox="0 0 100 62" style={style}>
       {puff && (
@@ -419,6 +441,7 @@ function Train({ size = 52, puff = false, style = {} }: { size?: number; puff?: 
 }
 
 function Ferry({ size = 60, wakes = false, style = {} }: { size?: number; wakes?: boolean; style?: CSSProperties }) {
+  const C = useTheme();
   return (
     <svg width={size} height={size * 0.7} viewBox="0 0 100 70" style={style}>
       <g filter="url(#wobble)">
@@ -446,6 +469,7 @@ function Ferry({ size = 60, wakes = false, style = {} }: { size?: number; wakes?
 }
 
 function Bus({ size = 44, style = {} }: { size?: number; style?: CSSProperties }) {
+  const C = useTheme();
   return (
     <svg width={size} height={size * 0.62} viewBox="0 0 100 62" style={style}>
       <g filter="url(#wobble)">
@@ -475,6 +499,7 @@ function Bus({ size = 44, style = {} }: { size?: number; style?: CSSProperties }
 }
 
 function BeachSketch({ size = 28 }: { size?: number }) {
+  const C = useTheme();
   return (
     <svg width={size} height={size * 0.78} viewBox="0 0 36 28">
       <g filter="url(#wobble)">
@@ -493,6 +518,7 @@ function BeachSketch({ size = 28 }: { size?: number }) {
 }
 
 function SkylineSketch({ size = 28 }: { size?: number }) {
+  const C = useTheme();
   return (
     <svg width={size} height={size * 0.78} viewBox="0 0 36 28">
       <g filter="url(#wobble)">
@@ -583,6 +609,7 @@ function CalendarInviteButton({
   dateLabel: string;
   style?: CSSProperties;
 }) {
+  const C = useTheme();
   const [added, setAdded] = useState(false);
 
   const onClick = (e: MouseEvent) => {
@@ -654,6 +681,7 @@ function ShareButton({ text, tone = 'light', style = {}, trackPayload }: {
   // successful share. Omitted by callers that don't want analytics.
   trackPayload?: TrackPayload;
 }) {
+  const C = useTheme();
   const [copied, setCopied] = useState(false);
   const dark = tone === 'dark';
   const fg = dark ? '#fff' : C.ink;
@@ -698,6 +726,7 @@ function ShareButton({ text, tone = 'light', style = {}, trackPayload }: {
 function DirectionToggle({ value, onChange }: {
   value: 'to-pines' | 'to-penn'; onChange: (v: 'to-pines' | 'to-penn') => void;
 }) {
+  const C = useTheme();
   const isPines = value === 'to-pines';
   return (
     <SketchBox color={C.ink} fill={C.paper} radius={28} sw={1.6} pad={2} style={{ margin: '0 18px' }}>
@@ -742,6 +771,7 @@ function NextHero({ direction, itineraries, todayLabel, todayStr }: {
   todayLabel: string;          // formatted, e.g. "Sat May 9, 2026"
   todayStr: string;            // YYYY-MM-DD for analytics payloads
 }) {
+  const C = useTheme();
   const toPines = direction === 'to-pines';
   const nowM = toMin(nowNY());
   const next = itineraries.find(it => toMin(it.departRaw) > nowM) ?? itineraries[0];
@@ -860,6 +890,7 @@ function ItineraryRow({ it, direction, dateLabel, dateStr }: {
   dateLabel: string;
   dateStr: string;
 }) {
+  const C = useTheme();
   const { bg, label } = slInfo(it.stoplight);
   const shareText = buildShareText(direction, dateLabel, it.segments);
 
@@ -954,6 +985,7 @@ function DatePickerStrip({ value, onChange, dates }: {
   onChange: (i: number) => void;
   dates: ReturnType<typeof rollingDates>;
 }) {
+  const C = useTheme();
   return (
     <div style={{ margin: '6px 0 10px' }}>
       <div style={{ overflowX: 'auto', padding: '4px 18px 8px' }}>
@@ -993,6 +1025,7 @@ function FilterBar({
   sort: 'earliest' | 'latest';
   onSort: (s: 'earliest' | 'latest') => void;
 }) {
+  const C = useTheme();
   const QUALITY_LABEL: Record<Stoplight, string> = { green: 'best', amber: 'risky', red: 'long' };
   const QUALITY_BG: Record<Stoplight, string> = { green: C.green, amber: C.amber, red: C.red };
 
@@ -1042,6 +1075,7 @@ function FilterBar({
 }
 
 function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
+  const C = useTheme();
   return (
     <div style={{ padding: '16px 18px 10px', position: 'relative' }}>
       <div style={{ fontFamily: F.disco, fontSize: 28, letterSpacing: 1.5, color: C.ink, lineHeight: 1 }}>
@@ -1065,13 +1099,14 @@ function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
 }
 
 // ─── Menu / overlay panel ─────────────────────────────────────────────────────
-type PanelView = 'closed' | 'menu' | 'ferry' | 'about' | 'home-station';
+type PanelView = 'closed' | 'menu' | 'ferry' | 'about' | 'home-station' | 'skins';
 
 type HomeStation = 'penn';
 
 const HOME_STATION_KEY = 'gopines_home_station';
 
 function MenuLink({ label, onClick }: { label: string; onClick: () => void }) {
+  const C = useTheme();
   return (
     <button onClick={onClick} style={{
       display: 'block', width: '100%', textAlign: 'left',
@@ -1158,6 +1193,7 @@ const DAY_CARDS: { idx: number; label: string }[] = [
 ];
 
 function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | null; ferryMock: boolean }) {
+  const C = useTheme();
   const [tab, setTab] = useState<'to-pines' | 'to-penn'>('to-pines');
   const trips = ferryData?.trips ?? [];
   const filtered = trips.filter(t => tab === 'to-pines'
@@ -1352,6 +1388,7 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
 }
 
 function AboutView() {
+  const C = useTheme();
   return (
     <div>
       <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink, marginBottom: 14 }}>
@@ -1396,6 +1433,7 @@ const STATIONS: { id: HomeStation | string; label: string; available: boolean }[
 function HomeStationView({
   selected, onSelect,
 }: { selected: HomeStation; onSelect: (s: HomeStation) => void }) {
+  const C = useTheme();
   return (
     <div>
       <div style={{ fontFamily: F.hand, fontSize: 14, color: '#9b958c', marginBottom: 16, lineHeight: 1.5 }}>
@@ -1456,8 +1494,70 @@ function HomeStationView({
   );
 }
 
+function SkinsView({
+  skins, activeSkinId, onSelect,
+}: {
+  skins: Skin[];
+  activeSkinId: string;
+  onSelect: (id: string) => void;
+}) {
+  const C = useTheme();
+  const SWATCHES: (keyof SkinPalette)[] = ['coral', 'ocean', 'sand', 'green', 'amber', 'ink'];
+  return (
+    <div>
+      <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink, marginBottom: 14 }}>
+        SKINS
+      </div>
+      {skins.map(skin => {
+        const active = skin.id === activeSkinId;
+        return (
+          <button
+            key={skin.id}
+            onClick={() => onSelect(skin.id)}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              border: '1.6px solid ' + C.ink,
+              borderRadius: 14,
+              background: active ? C.coral : C.paper,
+              cursor: 'pointer',
+              padding: 12,
+              marginBottom: 12,
+              boxShadow: active ? '2px 3px 0 ' + C.ink : '1.5px 2px 0 ' + C.ink,
+              transform: active ? 'translate(-1px,-1px)' : 'none',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{
+                fontFamily: F.marker, fontSize: 18,
+                color: active ? '#fff' : C.ink,
+                letterSpacing: 0.4,
+              }}>
+                {skin.label}
+              </span>
+              {active && (
+                <span style={{ fontFamily: F.hand, fontSize: 16, color: '#fff' }}>✓</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              {SWATCHES.map(key => (
+                <span key={key} style={{
+                  width: 20, height: 20, borderRadius: 999,
+                  background: skin.palette[key],
+                  border: '1.2px solid ' + (active ? 'rgba(255,255,255,0.5)' : C.ink),
+                  display: 'inline-block',
+                  flexShrink: 0,
+                }} />
+              ))}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function MenuPanel({
-  view, setView, ferryData, ferryMock, homeStation, setHomeStation,
+  view, setView, ferryData, ferryMock, homeStation, setHomeStation, skins, activeSkinId, onSkinSelect,
 }: {
   view: PanelView;
   setView: (v: PanelView) => void;
@@ -1465,7 +1565,11 @@ function MenuPanel({
   ferryMock: boolean;
   homeStation: HomeStation;
   setHomeStation: (s: HomeStation) => void;
+  skins: Skin[];
+  activeSkinId: string;
+  onSkinSelect: (id: string) => void;
 }) {
+  const C = useTheme();
   const open = view !== 'closed';
 
   return (
@@ -1525,12 +1629,14 @@ function MenuPanel({
           <div>
             <MenuLink label="Ferry Schedule" onClick={() => setView('ferry')} />
             <MenuLink label="Home Station"   onClick={() => setView('home-station')} />
+            <MenuLink label="Skins"          onClick={() => setView('skins')} />
             <MenuLink label="About"          onClick={() => setView('about')} />
           </div>
         )}
-        {view === 'ferry'         && <FerryScheduleView ferryData={ferryData} ferryMock={ferryMock} />}
-        {view === 'home-station'  && <HomeStationView selected={homeStation} onSelect={s => { setHomeStation(s); }} />}
-        {view === 'about'         && <AboutView />}
+        {view === 'ferry'        && <FerryScheduleView ferryData={ferryData} ferryMock={ferryMock} />}
+        {view === 'home-station' && <HomeStationView selected={homeStation} onSelect={s => { setHomeStation(s); }} />}
+        {view === 'about'        && <AboutView />}
+        {view === 'skins'        && <SkinsView skins={skins} activeSkinId={activeSkinId} onSelect={onSkinSelect} />}
       </div>
     </div>
   );
@@ -1558,6 +1664,14 @@ export function App() {
     setHomeStationState(s);
   };
   const [qualities, setQualities] = useState<Stoplight[]>(['green']);
+  const [skinId, setSkinId]       = useState<string>(
+    () => localStorage.getItem('gopines-skin') ?? 'godash-may26',
+  );
+  const activeSkin = SKINS.find(s => s.id === skinId) ?? SKINS[0];
+  const handleSkinSelect = (id: string) => {
+    setSkinId(id);
+    localStorage.setItem('gopines-skin', id);
+  };
   const toggleQuality = (s: Stoplight) =>
     setQualities(qs => qs.includes(s) ? qs.filter(x => x !== s) : [...qs, s]);
 
@@ -1612,7 +1726,10 @@ export function App() {
   const selectedDateLabel = fmtDateLabel(dates[dateIdx].dateStr);
   const todayLabel = fmtDateLabel(today);
 
+  const C = activeSkin.palette;
+
   return (
+    <ThemeContext.Provider value={C}>
     <div style={{
       minHeight: '100vh',
       background: `linear-gradient(180deg, ${C.sand} 0%, ${C.paper} 38%, ${C.paper} 100%)`,
@@ -1696,7 +1813,18 @@ export function App() {
         ferry data scraped daily · LIRR via open feed
       </div>
 
-      <MenuPanel view={panel} setView={setPanel} ferryData={ferryData} ferryMock={ferryMock} homeStation={homeStation} setHomeStation={setHomeStation} />
+      <MenuPanel
+        view={panel}
+        setView={setPanel}
+        ferryData={ferryData}
+        ferryMock={ferryMock}
+        homeStation={homeStation}
+        setHomeStation={setHomeStation}
+        skins={SKINS}
+        activeSkinId={skinId}
+        onSkinSelect={handleSkinSelect}
+      />
     </div>
+    </ThemeContext.Provider>
   );
 }
