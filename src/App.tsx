@@ -384,7 +384,7 @@ function Sparkle({ size = 14, style = {} }: { size?: number; style?: CSSProperti
   );
 }
 
-function Sun({ size = 60, style = {} }: { size?: number; style?: CSSProperties }) {
+function Sun({ size = 60, style = {}, showMenu = false }: { size?: number; style?: CSSProperties; showMenu?: boolean }) {
   const C = useTheme();
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={style}>
@@ -399,6 +399,11 @@ function Sun({ size = 60, style = {} }: { size?: number; style?: CSSProperties }
               stroke={C.ink} strokeWidth="2" strokeLinecap="round" />
           );
         })}
+        {showMenu && <>
+          <path d="M 22 74 Q 35 71, 50 74 T 78 74" stroke={C.ink} strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.45" />
+          <path d="M 28 80 Q 39 77, 50 80 T 72 80" stroke={C.ink} strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.45" />
+          <path d="M 34 86 Q 43 83, 50 86 T 66 86" stroke={C.ink} strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.45" />
+        </>}
       </g>
     </svg>
   );
@@ -1093,7 +1098,7 @@ function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
           cursor: 'pointer', borderRadius: '50%',
         }}
       >
-        <Sun size={42} />
+        <Sun size={42} showMenu />
       </button>
       <div style={{ position: 'absolute', top: 24, right: 64, pointerEvents: 'none' }}><Seagull size={18} /></div>
       <div style={{ position: 'absolute', top: 40, right: 78, pointerEvents: 'none' }}><Seagull size={12} /></div>
