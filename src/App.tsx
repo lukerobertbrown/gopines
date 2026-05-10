@@ -175,7 +175,7 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
     if (layover > MAX_LAYOVER_MIN) continue;
     const pinesArrRaw = addMin(ferry, FERRY_MIN);
     const total = toMin(pinesArrRaw) - toMin(j.depart.slice(0, 5));
-    if (total < 60 || total > 600) continue;
+    if (total < 60 || total > 240) continue;
     result.push({
       id: ++id,
       depart: fmt(j.depart),    departRaw: j.depart.slice(0, 5),
@@ -208,7 +208,7 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
     const layover = toMin(train.depart.slice(0, 5)) - toMin(sayArrRaw);
     if (layover > MAX_LAYOVER_MIN) continue;
     const total = toMin(train.arrive.slice(0, 5)) - toMin(ferryDep);
-    if (total < 60 || total > 600) continue;
+    if (total < 60 || total > 240) continue;
     result.push({
       id: ++id,
       depart: fmt(ferryDep),      departRaw: ferryDep,
