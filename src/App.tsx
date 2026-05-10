@@ -53,6 +53,8 @@ type ScheduleResp = { days: DayBlock[]; error?: string };
 type FerryTrip = {
   departureTime: string;
   direction: 'sayville_to_pines' | 'pines_to_sayville' | 'unknown';
+  daysOfWeek?: number[] | null;  // 0=Sun..6=Sat; null/undefined = applies to all days
+  dayLabel?: string | null;
 };
 
 type FerryResp = {
@@ -170,8 +172,13 @@ function markBest(list: Itinerary[]) {
   for (const r of list) { if (!done && r.total === minT) { r.best = true; done = true; } }
 }
 
-function buildToPines(outbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
-  const pines = ferries
+function ferriesForDay(ferries: FerryTrip[], dow: number): FerryTrip[] {
+  return ferries.filter(f => !Array.isArray(f.daysOfWeek) || f.daysOfWeek.includes(dow));
+}
+
+function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number): Itinerary[] {
+  const dayFerries = ferriesForDay(ferries, dow);
+  const pines = dayFerries
     .filter(f => f.direction === 'sayville_to_pines' || f.direction === 'unknown')
     .map(f => f.departureTime.slice(0, 5))
     .sort();
@@ -209,9 +216,10 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
   return result;
 }
 
-function buildToPenn(inbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
-  const hasPenn = ferries.some(f => f.direction === 'pines_to_sayville');
-  const pennDeps = ferries
+function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number): Itinerary[] {
+  const dayFerries = ferriesForDay(ferries, dow);
+  const hasPenn = dayFerries.some(f => f.direction === 'pines_to_sayville');
+  const pennDeps = dayFerries
     .filter(f => hasPenn ? f.direction === 'pines_to_sayville' : f.direction === 'unknown')
     .map(f => f.departureTime.slice(0, 5))
     .sort();
@@ -846,15 +854,33 @@ function MenuLink({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
+// Sort key putting Mon=1..Sat=6 first, Sun=0 last so weekly grouping reads naturally.
+function dowSortKey(d: number) { return d === 0 ? 7 : d; }
+
 function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | null; ferryMock: boolean }) {
   const [tab, setTab] = useState<'to-pines' | 'to-penn'>('to-pines');
   const trips = ferryData?.trips ?? [];
-  const filtered = trips
-    .filter(t => tab === 'to-pines'
-      ? (t.direction === 'sayville_to_pines' || t.direction === 'unknown')
-      : (t.direction === 'pines_to_sayville' || (t.direction === 'unknown' && !trips.some(x => x.direction === 'pines_to_sayville'))))
-    .map(t => t.departureTime.slice(0, 5))
-    .sort();
+  const filtered = trips.filter(t => tab === 'to-pines'
+    ? (t.direction === 'sayville_to_pines' || t.direction === 'unknown')
+    : (t.direction === 'pines_to_sayville' ||
+       (t.direction === 'unknown' && !trips.some(x => x.direction === 'pines_to_sayville'))));
+
+  // Group by dayLabel (or by sorted daysOfWeek). Trips with no day info → "Daily".
+  type Group = { label: string; minDay: number; times: string[] };
+  const byKey = new Map<string, Group>();
+  for (const t of filtered) {
+    const days = Array.isArray(t.daysOfWeek) && t.daysOfWeek.length ? t.daysOfWeek : null;
+    const key = days ? days.slice().sort((a, b) => a - b).join(',') : '__daily';
+    const minDay = days ? Math.min(...days.map(dowSortKey)) : 99;
+    const label = t.dayLabel || (days ? days.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : 'Daily');
+    let g = byKey.get(key);
+    if (!g) { g = { label, minDay, times: [] }; byKey.set(key, g); }
+    g.times.push(t.departureTime.slice(0, 5));
+  }
+  const groups = [...byKey.values()].sort((a, b) => a.minDay - b.minDay);
+  for (const g of groups) {
+    g.times = [...new Set(g.times)].sort();
+  }
 
   return (
     <div>
@@ -874,7 +900,7 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
 
       {/* Tabs */}
       <div style={{
-        display: 'flex', gap: 0, marginBottom: 12,
+        display: 'flex', gap: 0, marginBottom: 14,
         border: '1.6px solid ' + C.ink, borderRadius: 999, padding: 3,
         background: C.paper,
       }}>
@@ -896,26 +922,35 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
         })}
       </div>
 
-      {/* Time list */}
-      {filtered.length === 0 ? (
+      {groups.length === 0 ? (
         <div style={{ fontFamily: F.hand, fontSize: 14, color: '#7a736a' }}>
           No ferry times found for this direction.
         </div>
       ) : (
-        <SketchBox color={C.ink} fill={C.paper} radius={14} sw={1.6} pad={14}>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 8px',
-          }}>
-            {filtered.map(t => (
-              <div key={t} style={{
-                fontFamily: F.marker, fontSize: 18, letterSpacing: 0.4,
-                color: C.ink, textAlign: 'center',
+        groups.map(g => (
+          <div key={g.label} style={{ marginBottom: 14 }}>
+            <div style={{
+              fontFamily: F.marker, fontSize: 14, letterSpacing: 0.6,
+              color: C.ink, marginBottom: 6, textTransform: 'uppercase',
+            }}>
+              {g.label}
+            </div>
+            <SketchBox color={C.ink} fill={C.paper} radius={12} sw={1.4} pad={12}>
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px 6px',
               }}>
-                {fmt(t)}
+                {g.times.map(t => (
+                  <div key={t} style={{
+                    fontFamily: F.marker, fontSize: 17, letterSpacing: 0.4,
+                    color: C.ink, textAlign: 'center',
+                  }}>
+                    {fmt(t)}
+                  </div>
+                ))}
               </div>
-            ))}
+            </SketchBox>
           </div>
-        </SketchBox>
+        ))
       )}
 
       {ferryData?.sourcePageUrl && (
@@ -1068,11 +1103,15 @@ export function App() {
   const selectedDay = lirrData?.days?.find(d => d.date === dates[dateIdx].dateStr);
   const ferryTrips  = ferryData?.trips ?? [];
 
+  const dowFor = (dateStr: string) => new Date(dateStr + 'T12:00:00').getDay();
+  const selectedDow = dowFor(dates[dateIdx].dateStr);
+  const todayDow    = dowFor(today);
+
   let itineraries: Itinerary[] = [];
   if (selectedDay && ferryTrips.length) {
     const raw = direction === 'to-pines'
-      ? buildToPines(selectedDay.outbound, ferryTrips)
-      : buildToPenn(selectedDay.inbound, ferryTrips);
+      ? buildToPines(selectedDay.outbound, ferryTrips, selectedDow)
+      : buildToPenn(selectedDay.inbound, ferryTrips, selectedDow);
     itineraries = sort === 'latest' ? [...raw].reverse() : raw;
   }
 
@@ -1080,8 +1119,8 @@ export function App() {
   const todayDay = lirrData?.days?.find(d => d.date === today);
   const todayItineraries: Itinerary[] = (todayDay && ferryTrips.length)
     ? (direction === 'to-pines'
-        ? buildToPines(todayDay.outbound, ferryTrips)
-        : buildToPenn(todayDay.inbound, ferryTrips))
+        ? buildToPines(todayDay.outbound, ferryTrips, todayDow)
+        : buildToPenn(todayDay.inbound, ferryTrips, todayDow))
     : [];
 
   const fmtDateLabel = (dateStr: string) => {

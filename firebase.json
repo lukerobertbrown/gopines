@@ -36,6 +36,11 @@
         "region": "us-east1"
       },
       {
+        "source": "/api/forceIngestSayvilleFerryPines",
+        "function": "forceIngestSayvilleFerryPines",
+        "region": "us-east1"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
