@@ -85,3 +85,12 @@ If you add other MTA APIs that require auth, store keys in **Secret Manager** an
 **Static LIRR timetables** (`getLirrSchedule`, `/api/lirrSchedule`) use the public GTFS zip on AWS (`gtfslirr.zip`) and do **not** need the MTA API key.
 
 **Live GTFS-Realtime** (`getLirrScheduleLive` → `/api/lirrScheduleLive`, `getLirrRealtime` → `/api/lirrRealtime`) uses the same URL as in a browser: `https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/lirr%2Fgtfs-lirr`. As of early 2026 it returns **HTTP 200 without** `x-api-key`; the app fetches it **without** a key. MTA may still ask developers to register at [api.mta.info](https://api.mta.info) and could turn on auth later — if so, wire an optional `x-api-key` again (the helper in `lirrGtfsRt.js` already supports passing a key if you add Secret Manager or env config back).
+
+## Sayville Ferry (Vision + daily ingest)
+
+1. In [Google Cloud Console](https://console.cloud.google.com) for project **gopines**, enable **Cloud Vision API**.
+2. Grant the default Functions runtime service account **`Cloud Vision AI User`** (`roles/cloudvision.user`). It looks like `PROJECT_NUMBER-compute@developer.gserviceaccount.com`. The first successful `firebase deploy` for the ferry codebase often prompts to enable APIs; if Vision calls fail with permission errors, add this role.
+3. Deploy functions. The scheduled function **`ingestSayvilleFerryPines`** runs daily at **06:00 America/New_York**: loads [Sayville Fire Island Pines](https://www.sayvilleferry.com/fire-island-pines), parses embedded Wix JSON for the PNG URL, runs **document text detection** on that PNG, writes **`ferry_cache/pines_schedule`** in Firestore.
+4. Until the first run completes, **`GET /api/ferrySchedule`** returns **503**. To run the job immediately: **Google Cloud Console → Cloud Scheduler** → find the job for `ingestSayvilleFerryPines` → **Force run** (or wait for 6am).
+5. **Query param** `trainArrival` (Unix seconds): response includes **`nextFerriesFromSayville`** — up to 2 departures **Sayville → Pines** after `trainArrival + 10 minutes` (same-day, `America/New_York`).
+6. **Calibration:** If times or columns are wrong after a schedule image redesign, adjust heuristics in `functions/getFerrySchedule/sayvilleParseVision.js` (left/right column = dock direction) and bump **`parseVersion`** in `index.js` when you change logic.

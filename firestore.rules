@@ -1,6 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // All collections (ferry_cache, lirr_cache, …): client access off; Cloud Functions use Admin SDK.
     match /{document=**} {
       allow read, write: if false;
     }
