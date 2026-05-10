@@ -7,10 +7,12 @@ const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const vision = require("@google-cloud/vision");
+const pdfParse = require("pdf-parse");
 const { DateTime } = require("luxon");
 
 const { discoverPinesScheduleAssets } = require("./sayvilleDiscover");
 const { parseVisionDocumentResult } = require("./sayvilleParseVision");
+const { parseSayvillePdfText } = require("./sayvilleParsePdf");
 
 setGlobalOptions({
   region: "us-east1",
@@ -24,6 +26,9 @@ const FERRY_CACHE = "ferry_cache";
 const PINES_DOC = "pines_schedule";
 const TZ = "America/New_York";
 const WALK_FROM_STATION_SEC = 600;
+
+/** Bump when parser / ingest logic changes to force a fresh run for the same PNG/PDF URLs. */
+const CURRENT_INGEST_VERSION = 2;
 
 /**
  * @param {FirebaseFirestore.DocumentData | undefined} trips
@@ -67,24 +72,60 @@ exports.ingestSayvilleFerryPines = onSchedule(
     const db = admin.firestore();
     const docRef = db.collection(FERRY_CACHE).doc(PINES_DOC);
     const existing = await docRef.get();
-    if (existing.exists && existing.data()?.pngUrl === assets.pngUrl) {
-      console.log("ingestSayvilleFerryPines: PNG URL unchanged, skipping Vision");
+    const ex = existing.data();
+
+    const sameAssets =
+      ex?.pngUrl === assets.pngUrl && (ex?.pdfUrl || "") === (assets.pdfUrl || "");
+    const alreadyOk =
+      sameAssets &&
+      ex?.parseVersion === CURRENT_INGEST_VERSION &&
+      Array.isArray(ex?.trips) &&
+      ex.trips.length > 0;
+
+    if (existing.exists && alreadyOk) {
+      console.log("ingestSayvilleFerryPines: skip (same assets, trips already populated)");
       return null;
     }
 
-    const pngRes = await fetch(assets.pngUrl, {
+    const fetchOpts = {
       headers: { "user-agent": "Mozilla/5.0 (compatible; gopines/1.0; +https://gopines.gay)" },
-    });
-    if (!pngRes.ok) throw new Error(`PNG fetch failed: ${pngRes.status}`);
-    const pngBuf = Buffer.from(await pngRes.arrayBuffer());
+    };
 
-    const client = new vision.ImageAnnotatorClient();
-    const [result] = await client.documentTextDetection({ image: { content: pngBuf } });
-    if (result.error && result.error.message) {
-      throw new Error(`Vision API: ${result.error.message}`);
+    /** @type {object[]} */
+    let trips = [];
+    let parseNotes = "none";
+    let parseSource = "none";
+
+    if (assets.pdfUrl) {
+      const pdfRes = await fetch(assets.pdfUrl, fetchOpts);
+      if (pdfRes.ok) {
+        const pdfBuf = Buffer.from(await pdfRes.arrayBuffer());
+        const pdfData = await pdfParse(pdfBuf);
+        const parsed = parseSayvillePdfText(pdfData.text);
+        trips = parsed.trips;
+        parseNotes = parsed.parseNotes;
+        parseSource = "pdf";
+      } else {
+        parseNotes = `pdf_fetch_${pdfRes.status}`;
+      }
     }
 
-    const { trips, parseNotes } = parseVisionDocumentResult(result);
+    if (trips.length === 0) {
+      const pngRes = await fetch(assets.pngUrl, fetchOpts);
+      if (!pngRes.ok) throw new Error(`PNG fetch failed: ${pngRes.status}`);
+      const pngBuf = Buffer.from(await pngRes.arrayBuffer());
+
+      const client = new vision.ImageAnnotatorClient();
+      const [result] = await client.documentTextDetection({ image: { content: pngBuf } });
+      if (result.error && result.error.message) {
+        throw new Error(`Vision API: ${result.error.message}`);
+      }
+
+      const parsed = parseVisionDocumentResult(result);
+      trips = parsed.trips;
+      parseNotes = parsed.parseNotes;
+      parseSource = "vision";
+    }
 
     await docRef.set({
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -94,11 +135,14 @@ exports.ingestSayvilleFerryPines = onSchedule(
       pngUrl: assets.pngUrl,
       pdfUrl: assets.pdfUrl || null,
       trips,
-      parseVersion: 1,
+      parseVersion: CURRENT_INGEST_VERSION,
+      parseSource,
       visionConfidenceNote: parseNotes,
     });
 
-    console.log(`ingestSayvilleFerryPines: stored ${trips.length} trips (${parseNotes})`);
+    console.log(
+      `ingestSayvilleFerryPines: stored ${trips.length} trips (source=${parseSource}, ${parseNotes})`,
+    );
     return null;
   },
 );
@@ -154,6 +198,7 @@ exports.getFerrySchedule = onRequest(
         pdfUrl: data.pdfUrl ?? null,
         trips: data.trips || [],
         parseVersion: data.parseVersion,
+        parseSource: data.parseSource || null,
         parseNotes: data.visionConfidenceNote,
         walkFromStationMin: WALK_FROM_STATION_SEC / 60,
         nextFerriesFromSayville,

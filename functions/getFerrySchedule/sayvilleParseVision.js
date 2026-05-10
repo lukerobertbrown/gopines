@@ -1,7 +1,10 @@
 /**
  * Turn Vision API documentTextDetection fullTextAnnotation into ferry trip rows.
  * Heuristic: left half of page = sayville_to_pines, right = pines_to_sayville (calibrate if layout differs).
+ * Time tokens use the same rules as sayvilleParsePdf.js (7:00A, 12:00N, …).
  */
+
+const { extractTimesFromLine } = require("./sayvilleParsePdf");
 
 /**
  * @param {import('@google-cloud/vision').protos.google.cloud.vision.v1.IWord} word
@@ -10,23 +13,6 @@ function wordToText(word) {
   if (word.text && typeof word.text === "string") return word.text;
   if (!word.symbols || !word.symbols.length) return "";
   return word.symbols.map((s) => s.text || "").join("");
-}
-
-/**
- * @param {string} hStr
- * @param {string} mStr
- * @param {string | null | undefined} ap
- */
-function to24h(hStr, mStr, ap) {
-  let h = parseInt(hStr, 10);
-  const m = parseInt(mStr, 10);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  if (ap) {
-    const AP = ap.toUpperCase();
-    if (AP === "PM" && h < 12) h += 12;
-    if (AP === "AM" && h === 12) h = 0;
-  }
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
 function dedupeTrips(trips) {
@@ -49,19 +35,18 @@ function dedupeTrips(trips) {
  */
 function fallbackTextOnly(text) {
   const trips = [];
-  const re = /\b(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?\b/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const time24 = to24h(m[1], m[2], m[3]);
-    if (!time24) continue;
-    trips.push({
-      direction: "unknown",
-      departureTime: time24,
-      sourceColumn: "unknown",
-      rawLine: null,
-    });
+  for (const line of text.split(/\n/)) {
+    const times = extractTimesFromLine(line);
+    for (const t of times) {
+      trips.push({
+        direction: "unknown",
+        departureTime: t.departureTime,
+        sourceColumn: "unknown",
+        rawLine: line.trim().slice(0, 120),
+      });
+    }
   }
-  return { trips: dedupeTrips(trips), parseNotes: "text_fallback" };
+  return { trips: dedupeTrips(trips), parseNotes: "vision_text_fallback" };
 }
 
 /**
@@ -112,20 +97,30 @@ function geometryParse(ann) {
   }
 
   const trips = [];
-  const timePattern = /\b(\d{1,2}):(\d{2})\s*(AM|PM|am|pm)?\b/gi;
 
   for (const line of lines) {
     const rowText = line.words.map((w) => w.text).join(" ");
     const avgX = line.words.reduce((s, w) => s + w.cx, 0) / line.words.length;
-    const column = avgX < midX ? "left" : "right";
-    const direction = column === "left" ? "sayville_to_pines" : "pines_to_sayville";
-    for (const match of rowText.matchAll(timePattern)) {
-      const time24 = to24h(match[1], match[2], match[3]);
-      if (!time24) continue;
+    const times = extractTimesFromLine(rowText);
+    if (times.length >= 2) {
+      trips.push({
+        direction: "sayville_to_pines",
+        departureTime: times[0].departureTime,
+        sourceColumn: "geo_row_pair",
+        rawLine: rowText.slice(0, 160),
+      });
+      trips.push({
+        direction: "pines_to_sayville",
+        departureTime: times[1].departureTime,
+        sourceColumn: "geo_row_pair",
+        rawLine: rowText.slice(0, 160),
+      });
+    } else if (times.length === 1) {
+      const direction = avgX < midX ? "sayville_to_pines" : "pines_to_sayville";
       trips.push({
         direction,
-        departureTime: time24,
-        sourceColumn: column,
+        departureTime: times[0].departureTime,
+        sourceColumn: avgX < midX ? "geo_left" : "geo_right",
         rawLine: rowText.slice(0, 160),
       });
     }
@@ -155,5 +150,4 @@ function parseVisionDocumentResult(apiResult) {
 module.exports = {
   parseVisionDocumentResult,
   wordToText,
-  to24h,
 };
