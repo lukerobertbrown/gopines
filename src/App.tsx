@@ -77,8 +77,9 @@ type Itinerary = {
 };
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
-const FERRY_MIN = 30; // Sayville ↔ Pines crossing time
-const WALK_MIN  = 10; // walk from Sayville station to ferry dock
+const FERRY_MIN       = 30;  // Sayville ↔ Pines crossing time
+const WALK_MIN        = 10;  // walk from Sayville station to ferry dock
+const MAX_LAYOVER_MIN = 120; // hide itineraries where the Sayville wait > 2 hours
 
 function toMin(hhmm: string): number {
   const [h, m] = (hhmm || '').slice(0, 5).split(':').map(Number);
@@ -171,6 +172,7 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
     const ferry = pines.find(t => toMin(t) >= thresh);
     if (!ferry) continue;
     const layover = toMin(ferry) - toMin(sayArr);
+    if (layover > MAX_LAYOVER_MIN) continue;
     const pinesArrRaw = addMin(ferry, FERRY_MIN);
     const total = toMin(pinesArrRaw) - toMin(j.depart.slice(0, 5));
     if (total < 60 || total > 600) continue;
@@ -204,6 +206,7 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
     const train = trains.find(j => toMin(j.depart.slice(0, 5)) >= thresh);
     if (!train) continue;
     const layover = toMin(train.depart.slice(0, 5)) - toMin(sayArrRaw);
+    if (layover > MAX_LAYOVER_MIN) continue;
     const total = toMin(train.arrive.slice(0, 5)) - toMin(ferryDep);
     if (total < 60 || total > 600) continue;
     result.push({
