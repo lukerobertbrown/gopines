@@ -292,9 +292,18 @@ function dedupeByOriginMinute(journeys) {
 }
 
 async function fetchGtfsZipBuffer() {
-  const res = await fetch(GTFS_ZIP_URL);
-  if (!res.ok) throw new Error(`GTFS download failed: ${res.status}`);
-  return Buffer.from(await res.arrayBuffer());
+  // Bound the fetch so an upstream stall doesn't hold the function up to its
+  // global timeoutSeconds. The zip is ~10 MB; 30 s is generous on a healthy
+  // connection and short enough that we fail fast on hangs.
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const res = await fetch(GTFS_ZIP_URL, { signal: ctrl.signal });
+    if (!res.ok) throw new Error(`GTFS download failed: ${res.status}`);
+    return Buffer.from(await res.arrayBuffer());
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 /**

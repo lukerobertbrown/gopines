@@ -13,6 +13,7 @@ const C = {
   red:   '#E25E4C',
   amber: '#E8B53E',
   green: '#5BAE7E',
+  mint:  '#7DD3B5',  // used by the bus sprite
 } as const;
 
 const F = {
@@ -213,7 +214,10 @@ const MOCK_TO_PENN: FerryTrip[] = [
 
 function ferriesForDay(ferries: FerryTrip[], dow: number, dateStr?: string): FerryTrip[] {
   return ferries.filter(f => {
-    if (Array.isArray(f.daysOfWeek) && !f.daysOfWeek.includes(dow)) return false;
+    // null / undefined / [] all mean "no day restriction" (legacy and mock data
+    // produce missing-or-empty daysOfWeek; an empty list shouldn't filter
+    // every day out).
+    if (Array.isArray(f.daysOfWeek) && f.daysOfWeek.length > 0 && !f.daysOfWeek.includes(dow)) return false;
     if (dateStr) {
       if (f.effectiveStart && dateStr < f.effectiveStart) return false;
       if (f.effectiveEnd && dateStr > f.effectiveEnd) return false;
@@ -1077,6 +1081,24 @@ function dowSortKey(d: number) { return d === 0 ? 7 : d; }
 // Shorten weekday names in a date range string ("Friday, April 17 thru
 // Wednesday, May 20" → "Fri, April 17 thru Wed, May 20") so the header reads
 // compactly under the schedule title.
+// Whitelist external links sourced from Firestore. The data is server-controlled
+// today (Admin SDK only — clients can't write), but the parser pulls a URL out
+// of the Wix page so we still validate before rendering as a clickable link to
+// avoid a phishing surface if the upstream PNG/PDF is ever poisoned with a
+// crafted URL.
+const SOURCE_URL_HOSTS = new Set(["sayvilleferry.com", "www.sayvilleferry.com"]);
+function safeSourceUrl(url: string | undefined | null): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return null;
+    if (!SOURCE_URL_HOSTS.has(u.hostname)) return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
 // "2026-05-11" → "May 11" (used to render trip-level effectiveStart/End notes).
 function shortDate(iso: string | null | undefined): string {
   if (!iso) return '';
@@ -1305,13 +1327,17 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
         </div>
       )}
 
-      {ferryData?.sourcePageUrl && (
-        <div style={{ marginTop: 14, fontFamily: F.hand, fontSize: 13, color: '#5a544c', textAlign: 'center' }}>
-          Source: <a href={ferryData.sourcePageUrl} target="_blank" rel="noreferrer" style={{ color: C.deep, textDecoration: 'underline' }}>
-            sayvilleferry.com
-          </a>
-        </div>
-      )}
+      {(() => {
+        const safeUrl = safeSourceUrl(ferryData?.sourcePageUrl);
+        if (!safeUrl) return null;
+        return (
+          <div style={{ marginTop: 14, fontFamily: F.hand, fontSize: 13, color: '#5a544c', textAlign: 'center' }}>
+            Source: <a href={safeUrl} target="_blank" rel="noreferrer" style={{ color: C.deep, textDecoration: 'underline' }}>
+              sayvilleferry.com
+            </a>
+          </div>
+        );
+      })()}
     </div>
   );
 }

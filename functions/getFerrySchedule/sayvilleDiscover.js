@@ -80,9 +80,17 @@ function extractPinesAssets(merged) {
  * @returns {Promise<{ sourcePageUrl: string, pngUrl: string, pdfUrl: string | null, effectiveLabel: string, pngTitle: string }>}
  */
 async function discoverPinesScheduleAssets() {
-  const res = await fetch(PINES_PAGE_URL, {
-    headers: { "user-agent": FETCH_UA, accept: "text/html,application/xhtml+xml" },
-  });
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  let res;
+  try {
+    res = await fetch(PINES_PAGE_URL, {
+      headers: { "user-agent": FETCH_UA, accept: "text/html,application/xhtml+xml" },
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(t);
+  }
   if (!res.ok) throw new Error(`Sayville page fetch failed: ${res.status}`);
   const html = await res.text();
   const warmup = parseWixWarmupData(html);
