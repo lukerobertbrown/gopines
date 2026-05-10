@@ -128,16 +128,15 @@ export function App() {
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: "1rem", cursor: "pointer" }}>
         <input type="checkbox" checked={useLiveMta} onChange={(e) => setUseLiveMta(e.target.checked)} />
         <span>
-          Merge live MTA feed (GTFS-Realtime) for <strong>today</strong> — needs <code>MTA_API_KEY</code> secret on
-          Functions
+          Merge live MTA feed (GTFS-Realtime) for <strong>today</strong> — same public endpoint as in the browser; no
+          key required right now
         </span>
       </label>
 
       {loading && <p>Loading schedule…</p>}
       {err && (
         <p style={{ color: "#a00" }}>
-          Could not load schedule ({err}). For live mode, set the secret:{" "}
-          <code>firebase functions:secrets:set MTA_API_KEY</code> then redeploy. Static mode works without it.
+          Could not load schedule ({err}). Try static mode (checkbox off) or redeploy functions.
         </p>
       )}
 

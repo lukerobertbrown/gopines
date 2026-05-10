@@ -16,13 +16,19 @@ function numOr0(x) {
 }
 
 /**
- * @param {string} apiKey
+ * MTA currently serves this URL with HTTP 200 and no auth (no `x-api-key`).
+ * If they start requiring a key, pass a non-empty optionalApiKey to send the header.
+ *
+ * @param {string} [optionalApiKey]
  * @returns {Promise<Buffer>}
  */
-async function fetchLirrGtfsRt(apiKey) {
-  const res = await fetch(GTFS_RT_URL, {
-    headers: { "x-api-key": apiKey },
-  });
+async function fetchLirrGtfsRt(optionalApiKey) {
+  /** @type {Record<string, string>} */
+  const headers = {};
+  if (optionalApiKey && String(optionalApiKey).trim()) {
+    headers["x-api-key"] = String(optionalApiKey).trim();
+  }
+  const res = await fetch(GTFS_RT_URL, Object.keys(headers).length ? { headers } : {});
   if (!res.ok) {
     const t = await res.text().catch(() => "");
     throw new Error(`MTA GTFS-RT ${res.status}: ${t.slice(0, 200)}`);

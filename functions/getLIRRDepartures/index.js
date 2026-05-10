@@ -1,6 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { setGlobalOptions } = require("firebase-functions/v2");
-const { defineSecret } = require("firebase-functions/params");
 const { buildSchedulePayload, formatYmdNy } = require("./pennSayvilleSchedule");
 const {
   fetchLirrGtfsRt,
@@ -9,8 +8,6 @@ const {
   mergeRealtimeIntoPayload,
   feedToSummaryJson,
 } = require("./lirrGtfsRt");
-
-const mtaApiKey = defineSecret("MTA_API_KEY");
 
 setGlobalOptions({
   region: "us-east1",
@@ -74,12 +71,11 @@ exports.getLirrSchedule = onRequest(
   },
 );
 
-/** Static schedule + MTA GTFS-Realtime delays for today (requires MTA_API_KEY secret). */
+/** Static schedule + MTA GTFS-Realtime delays for today (fetched keyless; optional key supported in fetch helper if MTA requires it later). */
 exports.getLirrScheduleLive = onRequest(
   {
     cors: corsOrigins,
     invoker: "public",
-    secrets: [mtaApiKey],
     memory: "1GiB",
     timeoutSeconds: 120,
   },
@@ -101,22 +97,7 @@ exports.getLirrScheduleLive = onRequest(
         return;
       }
 
-      let key;
-      try {
-        key = mtaApiKey.value();
-      } catch (e) {
-        res.status(503).json({
-          error:
-            "MTA_API_KEY secret is not available. Run: firebase functions:secrets:set MTA_API_KEY",
-        });
-        return;
-      }
-      if (!key || !String(key).trim()) {
-        res.status(503).json({ error: "MTA_API_KEY is empty" });
-        return;
-      }
-
-      const rtBuf = await fetchLirrGtfsRt(String(key).trim());
+      const rtBuf = await fetchLirrGtfsRt();
       const feed = decodeFeed(rtBuf);
       const index = buildTripRealtimeIndex(feed);
       const payload = await buildSchedulePayload(days);
@@ -138,7 +119,7 @@ exports.getLirrScheduleLive = onRequest(
         source: "MTA GTFS-Realtime (lirr/gtfs-lirr)",
         mergedForDate: todayYmd,
         feedHeaderTimestamp: headerTs,
-        note: "Delays merged onto legs for today only (matched by trip_id + stop_id).",
+        note: "Delays merged onto legs for today only (matched by trip_id + stop_id). Feed fetched without API key.",
       };
 
       liveScheduleCache = { payload, loadedAt: now, days };
@@ -155,7 +136,6 @@ exports.getLirrRealtime = onRequest(
   {
     cors: corsOrigins,
     invoker: "public",
-    secrets: [mtaApiKey],
     memory: "512MiB",
     timeoutSeconds: 60,
   },
@@ -165,21 +145,7 @@ exports.getLirrRealtime = onRequest(
       return;
     }
     try {
-      let key;
-      try {
-        key = mtaApiKey.value();
-      } catch (e) {
-        res.status(503).json({
-          error:
-            "MTA_API_KEY secret is not available. Run: firebase functions:secrets:set MTA_API_KEY",
-        });
-        return;
-      }
-      if (!key || !String(key).trim()) {
-        res.status(503).json({ error: "MTA_API_KEY is empty" });
-        return;
-      }
-      const rtBuf = await fetchLirrGtfsRt(String(key).trim());
+      const rtBuf = await fetchLirrGtfsRt();
       const feed = decodeFeed(rtBuf);
       const summary = feedToSummaryJson(feed, 200);
       res.set("Cache-Control", "public, max-age=30");

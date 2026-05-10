@@ -80,16 +80,8 @@ Add a workflow later that runs `npm ci`, `npm run build`, and deploys using **Wo
 
 ## Secrets
 
-Store `MTA_API_KEY` in **Secret Manager** and grant the Functions runtime service account **Secret Accessor**. Do not commit API keys; keep `.env` local and listed in `.gitignore`.
+If you add other MTA APIs that require auth, store keys in **Secret Manager** and grant the Functions runtime service account **Secret Accessor**. Do not commit API keys; keep `.env` local and listed in `.gitignore`. The LIRR GTFS-Realtime URL used here does not need a key today.
 
 **Static LIRR timetables** (`getLirrSchedule`, `/api/lirrSchedule`) use the public GTFS zip on AWS (`gtfslirr.zip`) and do **not** need the MTA API key.
 
-**Live GTFS-Realtime** (`getLirrScheduleLive` → `/api/lirrScheduleLive`, and `getLirrRealtime` → `/api/lirrRealtime`) call `https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/lirr%2Fgtfs-lirr` with header `x-api-key`. Store your key in Secret Manager and attach it to Functions:
-
-```bash
-# one-time (paste key at prompt)
-firebase functions:secrets:set MTA_API_KEY
-firebase deploy --only functions
-```
-
-Grant the default compute service account **Secret Manager Secret Accessor** on `MTA_API_KEY` if the CLI did not already.
+**Live GTFS-Realtime** (`getLirrScheduleLive` → `/api/lirrScheduleLive`, `getLirrRealtime` → `/api/lirrRealtime`) uses the same URL as in a browser: `https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/lirr%2Fgtfs-lirr`. As of early 2026 it returns **HTTP 200 without** `x-api-key`; the app fetches it **without** a key. MTA may still ask developers to register at [api.mta.info](https://api.mta.info) and could turn on auth later — if so, wire an optional `x-api-key` again (the helper in `lirrGtfsRt.js` already supports passing a key if you add Secret Manager or env config back).

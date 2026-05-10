@@ -367,7 +367,7 @@ async function buildSchedulePayload(numDays = 14) {
     source: GTFS_ZIP_URL,
     feedVersion: gtfs.feedInfo.feed_version || "",
     disclaimer:
-      "Static schedule from MTA GTFS. Use Hosting /api/lirrScheduleLive to merge GTFS-Realtime delays for today (requires MTA_API_KEY secret). Transfer buffer 5 min. At most one transfer; up to 200 options per direction per day after deduping by Penn/Sayville departure minute.",
+      "Static schedule from MTA GTFS. /api/lirrScheduleLive merges GTFS-Realtime delays for today (live feed is currently reachable without an API key). Transfer buffer 5 min. At most one transfer; up to 200 options per direction per day after deduping by Penn/Sayville departure minute.",
     stops: {
       penn: { id: PENN_ID, name: names.get(PENN_ID) },
       sayville: { id: SAYVILLE_ID, name: names.get(SAYVILLE_ID) },
