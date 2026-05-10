@@ -122,6 +122,30 @@ function hmStr(totalMin: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+// ─── Analytics ────────────────────────────────────────────────────────────────
+// Lightweight gtag wrapper. The Google tag is injected by index.html, so
+// `window.gtag` exists in normal browsers. Adblockers / privacy extensions
+// strip the script, in which case `window.gtag` is undefined — `track()`
+// no-ops silently rather than crashing.
+declare global {
+  interface Window {
+    gtag?: (...args: unknown[]) => void;
+  }
+}
+
+type TrackPayload = {
+  direction: 'to-pines' | 'to-penn';
+  trip_date: string;     // YYYY-MM-DD (the trip's date, not the date of the event)
+  depart_time: string;   // HH:MM
+  total_min: number;
+  stoplight: 'green' | 'amber' | 'red';
+  surface: 'card' | 'hero';
+};
+
+function track(name: string, params: TrackPayload) {
+  try { window.gtag?.('event', name, params); } catch (_) { /* swallow */ }
+}
+
 // Hero countdown: "Xm" if under an hour, "Xh Ym" between 1–2h, "~Xh"
 // (rounded, with leading tilde) for anything 2h or longer.
 function countdownStr(totalMin: number): string {
@@ -578,6 +602,14 @@ function CalendarInviteButton({
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 0);
+    track('add_to_calendar', {
+      direction,
+      trip_date: dateStr,
+      depart_time: it.departRaw,
+      total_min: it.total,
+      stoplight: it.stoplight,
+      surface: 'card',
+    });
     setAdded(true);
     setTimeout(() => setAdded(false), 1400);
   };
@@ -605,8 +637,13 @@ function CalendarInviteButton({
   );
 }
 
-function ShareButton({ text, tone = 'light', style = {} }: {
-  text: string; tone?: 'light' | 'dark'; style?: CSSProperties;
+function ShareButton({ text, tone = 'light', style = {}, trackPayload }: {
+  text: string;
+  tone?: 'light' | 'dark';
+  style?: CSSProperties;
+  // Optional GA4 payload — when present, fires `share_trip` after a
+  // successful share. Omitted by callers that don't want analytics.
+  trackPayload?: TrackPayload;
 }) {
   const [copied, setCopied] = useState(false);
   const dark = tone === 'dark';
@@ -620,9 +657,10 @@ function ShareButton({ text, tone = 'light', style = {} }: {
       if (navigator.share) await navigator.share(payload);
       else if (navigator.clipboard) await navigator.clipboard.writeText(text);
       else window.location.href = `sms:?&body=${encodeURIComponent(text)}`;
+      if (trackPayload) track('share_trip', trackPayload);
       setCopied(true);
       setTimeout(() => setCopied(false), 1400);
-    } catch (_) { /* cancelled */ }
+    } catch (_) { /* cancelled — no event */ }
   };
 
   return (
@@ -689,10 +727,11 @@ function DirectionToggle({ value, onChange }: {
   );
 }
 
-function NextHero({ direction, itineraries, todayLabel }: {
+function NextHero({ direction, itineraries, todayLabel, todayStr }: {
   direction: 'to-pines' | 'to-penn';
   itineraries: Itinerary[];   // always today's, earliest-first
   todayLabel: string;          // formatted, e.g. "Sat May 9, 2026"
+  todayStr: string;            // YYYY-MM-DD for analytics payloads
 }) {
   const toPines = direction === 'to-pines';
   const nowM = toMin(nowNY());
@@ -776,6 +815,14 @@ function NextHero({ direction, itineraries, todayLabel }: {
           </div>
 
           <ShareButton tone={toPines ? 'light' : 'dark'} text={shareText}
+            trackPayload={{
+              direction,
+              trip_date: todayStr,
+              depart_time: next.departRaw,
+              total_min: next.total,
+              stoplight: next.stoplight,
+              surface: 'hero',
+            }}
             style={{ position: 'absolute', right: 10, bottom: 10 }} />
         </div>
       </SketchBox>
@@ -876,7 +923,17 @@ function ItineraryRow({ it, direction, dateLabel, dateStr }: {
         {/* Action row: calendar invite + share */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
           <CalendarInviteButton it={it} direction={direction} dateStr={dateStr} dateLabel={dateLabel} />
-          <ShareButton text={shareText} />
+          <ShareButton
+            text={shareText}
+            trackPayload={{
+              direction,
+              trip_date: dateStr,
+              depart_time: it.departRaw,
+              total_min: it.total,
+              stoplight: it.stoplight,
+              surface: 'card',
+            }}
+          />
         </div>
       </div>
     </SketchBox>
@@ -1465,6 +1522,7 @@ export function App() {
           direction={direction}
           itineraries={todayItineraries.filter(i => i.stoplight !== 'red')}
           todayLabel={todayLabel}
+          todayStr={today}
         />
       )}
 
