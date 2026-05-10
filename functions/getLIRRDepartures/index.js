@@ -6,6 +6,7 @@ if (!admin.apps.length) {
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
+const { defineSecret } = require("firebase-functions/params");
 const { buildSchedulePayload, formatYmdNy } = require("./pennSayvilleSchedule");
 const {
   fetchLirrGtfsRt,
@@ -21,7 +22,35 @@ setGlobalOptions({
   timeoutSeconds: 10,
 });
 
-const corsOrigins = [/gopines\.gay$/, "http://localhost:5173", "http://127.0.0.1:5173"];
+// Explicit allow-list. The previous /gopines\.gay$/ regex matched evil-gopines.gay
+// because it wasn't anchored to the start of the Origin string.
+const corsOrigins = [
+  "https://gopines.gay",
+  "https://www.gopines.gay",
+  "https://gopines.web.app",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+];
+
+// Optional shared-secret bearer token for the force-* endpoint. Set via
+//   firebase functions:secrets:set FORCE_TRIGGER_TOKEN
+// Falls open if the secret isn't configured (so existing deploys don't break)
+// but logs a warning so we notice.
+const FORCE_TRIGGER_TOKEN = defineSecret("FORCE_TRIGGER_TOKEN");
+
+function checkBearerToken(req, res, secret) {
+  const expected = secret && typeof secret.value === "function" ? secret.value() : null;
+  if (!expected) {
+    console.warn("FORCE_TRIGGER_TOKEN not configured — endpoint is publicly callable.");
+    return true;
+  }
+  const auth = String(req.headers.authorization || "");
+  if (auth !== `Bearer ${expected}`) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
 
 // We always parse and cache the full 14-day window. Shorter requests slice it.
 const REFRESH_DAYS = 14;
@@ -101,12 +130,14 @@ exports.forceRefreshLirrGtfs = onRequest(
     invoker: "public",
     memory: "1GiB",
     timeoutSeconds: 180,
+    secrets: [FORCE_TRIGGER_TOKEN],
   },
   async (req, res) => {
     if (req.method === "OPTIONS") {
       res.status(204).send("");
       return;
     }
+    if (!checkBearerToken(req, res, FORCE_TRIGGER_TOKEN)) return;
     try {
       const result = await refreshLirrSchedule({ force: true });
       res.status(200).json(result);

@@ -6,6 +6,7 @@ if (!admin.apps.length) {
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
+const { defineSecret } = require("firebase-functions/params");
 const vision = require("@google-cloud/vision");
 const { DateTime } = require("luxon");
 
@@ -19,7 +20,48 @@ setGlobalOptions({
   timeoutSeconds: 10,
 });
 
-const corsOrigins = [/gopines\.gay$/, "http://localhost:5173", "http://127.0.0.1:5173"];
+// Explicit allow-list. The previous /gopines\.gay$/ regex matched evil-gopines.gay
+// because it wasn't anchored to the start of the Origin string.
+const corsOrigins = [
+  "https://gopines.gay",
+  "https://www.gopines.gay",
+  "https://gopines.web.app",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+];
+
+// Optional shared-secret bearer token for the force-* endpoints. Set via
+//   firebase functions:secrets:set FORCE_TRIGGER_TOKEN
+// The endpoints fall open if the secret isn't configured (so existing deploys
+// don't break) but log a warning so we notice.
+const FORCE_TRIGGER_TOKEN = defineSecret("FORCE_TRIGGER_TOKEN");
+
+function checkBearerToken(req, res, secret) {
+  const expected = secret && typeof secret.value === "function" ? secret.value() : null;
+  if (!expected) {
+    console.warn("FORCE_TRIGGER_TOKEN not configured — endpoint is publicly callable.");
+    return true;
+  }
+  const auth = String(req.headers.authorization || "");
+  if (auth !== `Bearer ${expected}`) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+// Wrap fetch with an abort-after-Nms timeout so an upstream hang doesn't
+// hold the function up to its global timeoutSeconds. Returns the standard
+// Response object on success.
+async function fetchWithTimeout(url, opts = {}, timeoutMs = 15000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
 
 const FERRY_CACHE = "ferry_cache";
 const PINES_DOC = "pines_schedule";
@@ -43,7 +85,11 @@ function selectFerriesAfterTrain(trips, trainArrivalUnix, limit) {
   const threshold = trainArrivalUnix + WALK_FROM_STATION_SEC;
   return list
     .filter((t) => t && (t.direction === "sayville_to_pines" || t.direction === "unknown"))
-    .filter((t) => !Array.isArray(t.daysOfWeek) || t.daysOfWeek.includes(dow))
+    // Empty daysOfWeek means "no day restriction" (matches frontend semantics).
+    .filter((t) => !Array.isArray(t.daysOfWeek) || t.daysOfWeek.length === 0 || t.daysOfWeek.includes(dow))
+    // Effective-date window — keep parity with the frontend's ferriesForDay().
+    .filter((t) => !t.effectiveStart || ymd >= t.effectiveStart)
+    .filter((t) => !t.effectiveEnd || ymd <= t.effectiveEnd)
     .map((t) => {
       const departDt = DateTime.fromISO(`${ymd}T${t.departureTime}`, { zone: TZ });
       if (!departDt.isValid) return null;
@@ -92,7 +138,7 @@ async function ingestPinesSchedule({ force = false } = {}) {
     headers: { "user-agent": "Mozilla/5.0 (compatible; gopines/1.0; +https://gopines.gay)" },
   };
 
-  const pngRes = await fetch(assets.pngUrl, fetchOpts);
+  const pngRes = await fetchWithTimeout(assets.pngUrl, fetchOpts, 20000);
   if (!pngRes.ok) throw new Error(`PNG fetch failed: ${pngRes.status}`);
   const pngBuf = Buffer.from(await pngRes.arrayBuffer());
 
@@ -116,7 +162,7 @@ async function ingestPinesSchedule({ force = false } = {}) {
   let pdfAugmented = 0;
   try {
     if (assets.pdfUrl) {
-      const pdfRes = await fetch(assets.pdfUrl, fetchOpts);
+      const pdfRes = await fetchWithTimeout(assets.pdfUrl, fetchOpts, 20000);
       if (pdfRes.ok) {
         const pdfBuf = Buffer.from(await pdfRes.arrayBuffer());
         const pdfParsed = await parseSayvillePinesPdf(pdfBuf, { scheduleTitle });
@@ -185,12 +231,14 @@ exports.forceIngestSayvilleFerryPines = onRequest(
     invoker: "public",
     memory: "1GiB",
     timeoutSeconds: 300,
+    secrets: [FORCE_TRIGGER_TOKEN],
   },
   async (req, res) => {
     if (req.method === "OPTIONS") {
       res.status(204).send("");
       return;
     }
+    if (!checkBearerToken(req, res, FORCE_TRIGGER_TOKEN)) return;
     try {
       const result = await ingestPinesSchedule({ force: true });
       res.status(200).json(result);

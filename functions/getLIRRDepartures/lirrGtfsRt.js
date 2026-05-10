@@ -28,12 +28,22 @@ async function fetchLirrGtfsRt(optionalApiKey) {
   if (optionalApiKey && String(optionalApiKey).trim()) {
     headers["x-api-key"] = String(optionalApiKey).trim();
   }
-  const res = await fetch(GTFS_RT_URL, Object.keys(headers).length ? { headers } : {});
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`MTA GTFS-RT ${res.status}: ${t.slice(0, 200)}`);
+  // Bound the fetch — realtime feed should respond in well under 5 s.
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const res = await fetch(GTFS_RT_URL, {
+      ...(Object.keys(headers).length ? { headers } : {}),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`MTA GTFS-RT ${res.status}: ${text.slice(0, 200)}`);
+    }
+    return Buffer.from(await res.arrayBuffer());
+  } finally {
+    clearTimeout(t);
   }
-  return Buffer.from(await res.arrayBuffer());
 }
 
 /**
