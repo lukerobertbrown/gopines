@@ -27,24 +27,111 @@ const C = GODASH_PALETTE;
 
 type SkinPalette = typeof GODASH_PALETTE;
 
+const GRANDMAS_PALETTE: SkinPalette = {
+  ...GODASH_PALETTE,
+  ocean: '#2A0B05', // warm DoorDash-dark — replaces midnight blue for the to-penn hero
+  pink:  '#FFC8B6', // peachier so it pops against the warmer dark hero
+};
+
+type SkinCopy = {
+  wordmark: string;
+  heroToPines: string;
+  heroToPenn: string;
+  emptyToPines: string;
+  emptyToPenn: string;
+  stoplight: Record<'green' | 'amber' | 'red', string>;
+  todayLabel: string;
+};
+
 type Skin = {
   id: string;
   label: string;
   palette: SkinPalette;
+  copy?: Partial<SkinCopy> & { stoplight?: Partial<SkinCopy['stoplight']> };
+  fonts?: {
+    disco?: string;
+    discoStyle?: 'normal' | 'italic';
+    discoWeight?: number;
+    discoTracking?: number;
+  };
+  features?: {
+    sponsorStrip?: boolean;
+    dashBadge?: boolean;
+    busRoofRack?: boolean;
+    wordmarkSize?: number;
+    wordmarkWrap?: boolean;
+  };
 };
+
+const FALLBACK_COPY: SkinCopy = {
+  wordmark: 'GOPINES.GAY',
+  heroToPines: 'NEXT TRAIN',
+  heroToPenn:  'NEXT FERRY',
+  emptyToPines: 'No more trains today — check back tomorrow!',
+  emptyToPenn:  'No more ferries today — see you next time!',
+  stoplight: { green: 'best', amber: 'risky', red: 'long' },
+  todayLabel: 'today',
+};
+
+function skinCopy(s: Skin): SkinCopy {
+  return {
+    ...FALLBACK_COPY,
+    ...(s.copy ?? {}),
+    stoplight: { ...FALLBACK_COPY.stoplight, ...(s.copy?.stoplight ?? {}) },
+  };
+}
 
 const SKINS: Skin[] = [
   { id: 'godash-may26', label: "DoorDash - May'26", palette: GODASH_PALETTE },
+  {
+    id: 'grandmas',
+    label: 'DoorDash Grandmas',
+    palette: GRANDMAS_PALETTE,
+    copy: {
+      wordmark: 'SPONSORED BY DOORDASH GRANDMAS',
+      heroToPines: 'YOUR DASHER ARRIVES IN',
+      heroToPenn:  'RETURN DASH PICKUP IN',
+      emptyToPines: "Kitchen's closed — check back tomorrow!",
+      emptyToPenn:  'Last dash of the day — see you next time!',
+      stoplight: { green: 'dashpass', amber: 'tight', red: 'slow lane' },
+      todayLabel: 'dashing',
+    },
+    fonts: {
+      disco: "'DM Sans', sans-serif",
+      discoStyle: 'italic',
+      discoWeight: 800,
+      discoTracking: 1,
+    },
+    features: {
+      sponsorStrip: true,
+      dashBadge: true,
+      busRoofRack: true,
+      wordmarkSize: 18,
+      wordmarkWrap: true,
+    },
+  },
 ];
 
 const ThemeContext = createContext<SkinPalette>(GODASH_PALETTE);
 const useTheme = () => useContext(ThemeContext);
+
+const SkinContext = createContext<Skin>(SKINS[0]);
+const useSkin = () => useContext(SkinContext);
 
 const F = {
   hand:   "'Patrick Hand', cursive",
   marker: "'Kalam', cursive",
   disco:  "'Monoton', sans-serif",
 } as const;
+
+function discoFont(skin: Skin): CSSProperties {
+  return {
+    fontFamily: skin.fonts?.disco ?? F.disco,
+    fontStyle: skin.fonts?.discoStyle ?? 'normal',
+    fontWeight: skin.fonts?.discoWeight ?? 400,
+    letterSpacing: skin.fonts?.discoTracking ?? 1.5,
+  };
+}
 
 // ─── API types ────────────────────────────────────────────────────────────────
 type Leg = {
@@ -193,10 +280,9 @@ function sl(totalMin: number, layoverMin: number): Stoplight {
   return layoverMin >= COMFORT_LAYOVER_MIN ? 'green' : 'amber';
 }
 
-function slInfo(s: Stoplight) {
-  return s === 'green' ? { bg: C.green, label: 'best'  }
-       : s === 'amber' ? { bg: C.amber, label: 'risky' }
-       :                 { bg: C.red,   label: 'long'  };
+function slInfo(s: Stoplight, labels: SkinCopy['stoplight'] = FALLBACK_COPY.stoplight) {
+  const bg = s === 'green' ? C.green : s === 'amber' ? C.amber : C.red;
+  return { bg, label: labels[s] };
 }
 
 function todayNY(): string {
@@ -473,13 +559,32 @@ function Ferry({ size = 60, wakes = false, style = {} }: { size?: number; wakes?
   );
 }
 
+function DashBadge({ size = 14 }: { size?: number }) {
+  const C = useTheme();
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" aria-hidden="true">
+      <g filter="url(#wobble)">
+        <text x="2" y="11"
+              fontFamily="'Patrick Hand', cursive"
+              fontStyle="italic" fontWeight="700"
+              fontSize="12" fill={C.ink}>D</text>
+      </g>
+    </svg>
+  );
+}
+
 function Bus({ size = 44, style = {} }: { size?: number; style?: CSSProperties }) {
   const C = useTheme();
+  const skin = useSkin();
   return (
     <svg width={size} height={size * 0.62} viewBox="0 0 100 62" style={style}>
       <g filter="url(#wobble)">
         {/* body */}
         <rect x="8" y="18" width="80" height="28" rx="5" fill={C.mint} stroke={C.ink} strokeWidth="1.6" />
+        {/* roof rack — Grandmas only (the "dash bag" gag) */}
+        {skin.features?.busRoofRack && (
+          <rect x="20" y="14" width="56" height="4" rx="1.2" fill={C.coral} stroke={C.ink} strokeWidth="1" />
+        )}
         {/* roof line */}
         <line x1="10" y1="24" x2="86" y2="24" stroke={C.ink} strokeWidth="1.2" />
         {/* windows */}
@@ -836,6 +941,8 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
   originLabel: string;
 }) {
   const C = useTheme();
+  const skin = useSkin();
+  const copy = skinCopy(skin);
   const toPines = direction === 'to-pines';
   const nowM = toMin(nowNY());
   const next = itineraries.find(it => toMin(it.departRaw) > nowM) ?? itineraries[0];
@@ -845,7 +952,7 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
       <div style={{ margin: '2px 18px 12px' }}>
         <SketchBox color={C.ink} fill={toPines ? C.gold : C.ocean} radius={20} sw={1.8} pad={14}>
           <div style={{ fontFamily: F.hand, color: '#FFFFFF', fontSize: 15 }}>
-            {toPines ? 'No more trains today — check back tomorrow!' : 'No more ferries today — see you next time!'}
+            {toPines ? copy.emptyToPines : copy.emptyToPenn}
           </div>
         </SketchBox>
       </div>
@@ -854,7 +961,7 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
 
   const diffMin = toMin(next.departRaw) - nowM;
   const showCountdown = diffMin > 0 && diffMin < 12 * 60;
-  const title = toPines ? 'NEXT TRAIN' : 'NEXT FERRY';
+  const title = toPines ? copy.heroToPines : copy.heroToPenn;
   const trainSegs = next.segments.filter(s => s.kind === 'train');
   const ferrySeg  = next.segments.find(s => s.kind === 'ferry');
   const trainPart = trainSegs.map(t => {
@@ -865,8 +972,8 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
   const subParts = toPines ? [...trainPart, ferryPart] : [ferryPart, ...trainPart];
   const sub = subParts.filter(Boolean).join(' → ');
   const shareText = buildShareText(direction, todayLabel, next.segments);
-  const slBg    = next.stoplight === 'green' ? C.green : C.amber;
-  const slLabel = next.stoplight === 'green' ? 'best' : 'risky';
+  const slBg    = next.stoplight === 'green' ? C.green : next.stoplight === 'amber' ? C.amber : C.red;
+  const slLabel = copy.stoplight[next.stoplight];
 
   return (
     <div style={{ margin: '2px 18px 12px', position: 'relative' }}>
@@ -890,6 +997,7 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
               border: '1.2px solid ' + C.ink,
               flex: '0 0 auto',
             }}>
+              {skin.features?.dashBadge && <DashBadge size={10} />}
               <span style={{
                 width: 8, height: 8, borderRadius: 999, background: slBg,
                 border: '1px solid ' + C.ink, display: 'inline-block',
@@ -900,7 +1008,7 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
           </div>
 
           {/* Big disco time */}
-          <div style={{ fontFamily: F.disco, fontSize: 34, letterSpacing: 1.5, color: '#FFFFFF', lineHeight: 1, marginTop: 6 }}>
+          <div style={{ ...discoFont(skin), fontSize: 34, color: '#FFFFFF', lineHeight: 1, marginTop: 6 }}>
             {next.depart.toUpperCase()}
           </div>
 
@@ -956,7 +1064,8 @@ function ItineraryRow({ it, direction, dateLabel, dateStr, originLabel }: {
   originLabel: string;
 }) {
   const C = useTheme();
-  const { bg, label } = slInfo(it.stoplight);
+  const skin = useSkin();
+  const { bg, label } = slInfo(it.stoplight, skinCopy(skin).stoplight);
   const shareText = buildShareText(direction, dateLabel, it.segments);
 
   return (
@@ -972,6 +1081,7 @@ function ItineraryRow({ it, direction, dateLabel, dateStr, originLabel }: {
             {it.arrive}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {skin.features?.dashBadge && <DashBadge size={10} />}
             <span style={{ width: 10, height: 10, borderRadius: 999, background: bg, border: '1.2px solid ' + C.ink, display: 'inline-block' }} />
             <span style={{ fontFamily: F.marker, fontSize: 12, color: C.ink, letterSpacing: 0.4 }}>{label}</span>
             <span style={{ fontFamily: F.hand, fontSize: 13, color: '#9b958c', marginLeft: 4 }}>· {hmStr(it.total)}</span>
@@ -1054,6 +1164,7 @@ function DatePickerStrip({ value, onChange, dates }: {
   dates: ReturnType<typeof rollingDates>;
 }) {
   const C = useTheme();
+  const todayLabel = skinCopy(useSkin()).todayLabel;
   return (
     <div style={{ margin: '6px 0 10px' }}>
       <div style={{ overflowX: 'auto', padding: '4px 18px 8px' }}>
@@ -1070,7 +1181,7 @@ function DatePickerStrip({ value, onChange, dates }: {
                 cursor: 'pointer', position: 'relative',
                 transform: on ? 'translate(-1px,-1px)' : 'none',
               }}>
-                <div style={{ fontFamily: F.hand, fontSize: 13, opacity: 0.8 }}>{d.today ? 'today' : d.dow}</div>
+                <div style={{ fontFamily: F.hand, fontSize: 13, opacity: 0.8 }}>{d.today ? todayLabel : d.dow}</div>
                 <div style={{ fontFamily: F.marker, fontSize: 18, lineHeight: 1, letterSpacing: 0.5 }}>{d.dom}</div>
                 {d.weekend && !on && (
                   <span style={{ position: 'absolute', top: -6, right: -4 }}><Sparkle size={12} /></span>
@@ -1094,7 +1205,7 @@ function FilterBar({
   onSort: (s: 'earliest' | 'latest') => void;
 }) {
   const C = useTheme();
-  const QUALITY_LABEL: Record<Stoplight, string> = { green: 'best', amber: 'risky', red: 'long' };
+  const QUALITY_LABEL: Record<Stoplight, string> = skinCopy(useSkin()).stoplight;
   const QUALITY_BG: Record<Stoplight, string> = { green: C.green, amber: C.amber, red: C.red };
 
   const segShell: CSSProperties = {
@@ -1144,25 +1255,49 @@ function FilterBar({
 
 function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
   const C = useTheme();
+  const skin = useSkin();
+  const copy = skinCopy(skin);
   return (
-    <div style={{ padding: '16px 18px 10px', position: 'relative' }}>
-      <div style={{ fontFamily: F.disco, fontSize: 28, letterSpacing: 1.5, color: C.ink, lineHeight: 1 }}>
-        GOPINES.GAY
+    <>
+      {skin.features?.sponsorStrip && (
+        <div style={{
+          borderTop: '1px solid ' + C.ink,
+          borderBottom: '1px solid ' + C.ink,
+          padding: '6px 18px',
+          fontFamily: F.hand,
+          fontSize: 12,
+          color: C.ink,
+          background: C.sand,
+          lineHeight: 1.2,
+        }}>
+          🍔 brought to you by DoorDash Grandmas™
+        </div>
+      )}
+      <div style={{ padding: '16px 18px 10px', position: 'relative' }}>
+        <div style={{
+          ...discoFont(skin),
+          fontSize: skin.features?.wordmarkSize ?? 28,
+          color: C.ink,
+          lineHeight: skin.features?.wordmarkWrap ? 1.05 : 1,
+          paddingRight: 56, // reserve room for the Sun menu button
+        }}>
+          {copy.wordmark}
+        </div>
+        <button
+          onClick={onMenuOpen}
+          aria-label="open menu"
+          style={{
+            position: 'absolute', top: 10, right: 14,
+            border: 'none', background: 'transparent', padding: 0,
+            cursor: 'pointer', borderRadius: '50%',
+          }}
+        >
+          <Sun size={42} showMenu />
+        </button>
+        <div style={{ position: 'absolute', top: 24, right: 64, pointerEvents: 'none' }}><Seagull size={18} /></div>
+        <div style={{ position: 'absolute', top: 40, right: 78, pointerEvents: 'none' }}><Seagull size={12} /></div>
       </div>
-      <button
-        onClick={onMenuOpen}
-        aria-label="open menu"
-        style={{
-          position: 'absolute', top: 10, right: 14,
-          border: 'none', background: 'transparent', padding: 0,
-          cursor: 'pointer', borderRadius: '50%',
-        }}
-      >
-        <Sun size={42} showMenu />
-      </button>
-      <div style={{ position: 'absolute', top: 24, right: 64, pointerEvents: 'none' }}><Seagull size={18} /></div>
-      <div style={{ position: 'absolute', top: 40, right: 78, pointerEvents: 'none' }}><Seagull size={12} /></div>
-    </div>
+    </>
   );
 }
 
@@ -1269,6 +1404,7 @@ const DAY_CARDS: { idx: number; label: string }[] = [
 
 function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | null; ferryMock: boolean }) {
   const C = useTheme();
+  const skin = useSkin();
   const [tab, setTab] = useState<'to-pines' | 'to-penn'>('to-pines');
   const trips = ferryData?.trips ?? [];
   const filtered = trips.filter(t => tab === 'to-pines'
@@ -1313,7 +1449,7 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
     <div>
       {/* Page header: scraped schedule title + date range */}
       <div style={{
-        fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5,
+        ...discoFont(skin), fontSize: 22,
         color: C.ink, lineHeight: 1.1,
       }}>
         {title.toUpperCase()}
@@ -1500,9 +1636,10 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
 
 function AboutView() {
   const C = useTheme();
+  const skin = useSkin();
   return (
     <div>
-      <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink, marginBottom: 14 }}>
+      <div style={{ ...discoFont(skin), fontSize: 22, color: C.ink, marginBottom: 14 }}>
         ABOUT
       </div>
       <div style={{ fontFamily: F.hand, fontSize: 17, color: C.ink, lineHeight: 1.45 }}>
@@ -1616,10 +1753,11 @@ function SkinsView({
   onSelect: (id: string) => void;
 }) {
   const C = useTheme();
+  const activeSkinObj = useSkin();
   const SWATCHES: (keyof SkinPalette)[] = ['coral', 'ocean', 'sand', 'green', 'amber', 'ink'];
   return (
     <div>
-      <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink, marginBottom: 14 }}>
+      <div style={{ ...discoFont(activeSkinObj), fontSize: 22, color: C.ink, marginBottom: 14 }}>
         SKINS
       </div>
       {skins.map(skin => {
@@ -1718,7 +1856,7 @@ function MenuPanel({
         {/* Top bar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           {view === 'menu' ? (
-            <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink }}>
+            <div style={{ ...discoFont(useSkin()), fontSize: 22, color: C.ink }}>
               MENU
             </div>
           ) : (
@@ -1843,6 +1981,7 @@ export function App() {
   const C = activeSkin.palette;
 
   return (
+    <SkinContext.Provider value={activeSkin}>
     <ThemeContext.Provider value={C}>
     <div style={{
       minHeight: '100vh',
@@ -1953,5 +2092,6 @@ export function App() {
       />
     </div>
     </ThemeContext.Provider>
+    </SkinContext.Provider>
   );
 }
