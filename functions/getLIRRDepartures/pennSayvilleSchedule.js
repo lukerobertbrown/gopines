@@ -11,11 +11,13 @@ const PENN_ID = "237";
 const SAYVILLE_ID = "204";
 const GRAND_CENTRAL_ID = "349";
 const ATLANTIC_TERMINAL_ID = "241";
+const WOODSIDE_ID = "214";
 
 const STATIONS = {
   penn:             { id: PENN_ID,             label: "Penn Station"          },
   "grand-central":  { id: GRAND_CENTRAL_ID,    label: "Grand Central Madison" },
   atlantic:         { id: ATLANTIC_TERMINAL_ID, label: "Atlantic Terminal"    },
+  woodside:         { id: WOODSIDE_ID,         label: "Woodside"              },
 };
 const DEFAULT_MIN_TRANSFER_SEC = 300;
 const MAX_JOURNEYS_PER_DAY = 200;
@@ -401,5 +403,6 @@ module.exports = {
   SAYVILLE_ID,
   GRAND_CENTRAL_ID,
   ATLANTIC_TERMINAL_ID,
+  WOODSIDE_ID,
   STATIONS,
 };
