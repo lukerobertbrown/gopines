@@ -729,6 +729,63 @@ function ShareButton({ text, tone = 'light', style = {}, trackPayload }: {
   );
 }
 
+function BugButton({ it, direction, dateLabel, dateStr }: {
+  it: Itinerary;
+  direction: 'to-pines' | 'to-penn';
+  dateLabel: string;
+  dateStr: string;
+}) {
+  const C = useTheme();
+
+  const onClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    const dirLabel = direction === 'to-pines' ? 'To the Pines' : 'From the Pines';
+    const bullets = it.segments.map(s => {
+      const tail = s.name ? ` (${s.name})` : '';
+      return `- ${s.time} — ${s.fromTo}${tail}`;
+    }).join('\n');
+    const body = `**Direction:** ${dirLabel}\n**Date:** ${dateLabel}\n**Trip:** ${it.depart} → ${it.arrive}\n\n**Segments:**\n${bullets}`;
+    const title = `[Trip Error] ${dirLabel} ${dateLabel} ${it.depart}→${it.arrive}`;
+    const url = `https://github.com/lukerobertbrown/gopines/issues/new?template=trip_error.md&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+    track('report_trip_error', {
+      direction,
+      trip_date: dateStr,
+      depart_time: it.departRaw,
+      stoplight: it.stoplight,
+    });
+  };
+
+  return (
+    <button onClick={onClick} aria-label="report trip error" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      border: '1.2px solid ' + C.ink,
+      background: 'rgba(255,255,255,0.7)', color: C.ink, cursor: 'pointer',
+      borderRadius: 999, padding: '3px 9px',
+      fontFamily: F.marker, fontSize: 11, letterSpacing: 0.6,
+      boxShadow: '1px 1.5px 0 ' + C.ink,
+    }}>
+      <svg width="11" height="11" viewBox="0 0 14 14">
+        <g stroke={C.ink} strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#wobble)">
+          <ellipse cx="7" cy="8.5" rx="3" ry="3.8" />
+          <circle cx="7" cy="3.8" r="1.6" />
+          {/* legs */}
+          <line x1="4" y1="7" x2="1.5" y2="5.5" />
+          <line x1="4" y1="8.5" x2="1.5" y2="8.5" />
+          <line x1="4" y1="10" x2="1.5" y2="11.5" />
+          <line x1="10" y1="7" x2="12.5" y2="5.5" />
+          <line x1="10" y1="8.5" x2="12.5" y2="8.5" />
+          <line x1="10" y1="10" x2="12.5" y2="11.5" />
+          {/* antennae */}
+          <line x1="6" y1="2.4" x2="4.5" y2="1" />
+          <line x1="8" y1="2.4" x2="9.5" y2="1" />
+        </g>
+      </svg>
+      BUG
+    </button>
+  );
+}
+
 function DirectionToggle({ value, onChange }: {
   value: 'to-pines' | 'to-penn'; onChange: (v: 'to-pines' | 'to-penn') => void;
 }) {
@@ -968,8 +1025,10 @@ function ItineraryRow({ it, direction, dateLabel, dateStr, originLabel }: {
           })}
         </div>
 
-        {/* Action row: calendar invite + share */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
+        {/* Action row: bug report + calendar invite + share */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+          <BugButton it={it} direction={direction} dateLabel={dateLabel} dateStr={dateStr} />
+          <div style={{ display: 'flex', gap: 6 }}>
           <CalendarInviteButton it={it} direction={direction} dateStr={dateStr} dateLabel={dateLabel} originLabel={originLabel} />
           <ShareButton
             text={shareText}
@@ -982,6 +1041,7 @@ function ItineraryRow({ it, direction, dateLabel, dateStr, originLabel }: {
               surface: 'card',
             }}
           />
+          </div>
         </div>
       </div>
     </SketchBox>
