@@ -792,7 +792,7 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
 
   const diffMin = toMin(next.departRaw) - nowM;
   const showCountdown = diffMin > 0 && diffMin < 12 * 60;
-  const title = toPines ? `NEXT TRAIN FROM ${originLabel.toUpperCase()}` : 'NEXT FERRY OFF THE PINES';
+  const title = toPines ? 'NEXT TRAIN' : 'NEXT FERRY';
   const trainSegs = next.segments.filter(s => s.kind === 'train');
   const ferrySeg  = next.segments.find(s => s.kind === 'ferry');
   const trainPart = trainSegs.map(t => {
