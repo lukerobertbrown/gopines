@@ -1,19 +1,24 @@
 import { useState, useEffect, type CSSProperties, type ReactNode, type MouseEvent } from "react";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
+// Palette ported from the GoDash design (DoorDash-styled re-skin). `coral` and
+// `gold` collapse to the same DoorDash red — that's the design intent. `yellow`
+// is an off-palette literal kept around for sprites that need to stay yellow
+// (sun, sparkle) regardless of the brand red elsewhere.
 const C = {
-  sand:  '#F8F1E4',
-  paper: '#FBF6EB',
-  ink:   '#2A2622',
-  ocean: '#3FA9D9',
-  deep:  '#1F6F95',
-  coral: '#FF7A5C',
-  gold:  '#F5C242',
-  pink:  '#F49AC2',
-  red:   '#E25E4C',
-  amber: '#E8B53E',
-  green: '#5BAE7E',
-  mint:  '#7DD3B5',  // used by the bus sprite
+  sand:  '#FAF6F0',  // very subtle warm white — page background
+  paper: '#FFFFFF',  // card / header background
+  ink:   '#191919',  // DoorDash near-black
+  ocean: '#131A2C',  // midnight blue — hero "to-penn" bg
+  deep:  '#000000',  // pairs with ocean
+  coral: '#EB1700',  // DoorDash red — primary accent + hero "to-pines" bg
+  gold:  '#EB1700',  // same red (design folds gold into the brand red)
+  pink:  '#FFB199',  // soft salmon — ferry flag
+  red:   '#C92033',  // semantic, kept readable on white
+  amber: '#F2BB05',
+  green: '#00854D',
+  mint:  '#EEF1F4',  // soft cool grey — bus body
+  yellow:'#FFC60A',  // off-palette literal for sun/sparkle sprites
 } as const;
 
 const F = {
@@ -354,7 +359,7 @@ function Sparkle({ size = 14, style = {} }: { size?: number; style?: CSSProperti
   return (
     <svg width={size} height={size} viewBox="0 0 20 20" style={style}>
       <path d="M10 1 L11.5 8.5 L19 10 L11.5 11.5 L10 19 L8.5 11.5 L1 10 L8.5 8.5 Z"
-        fill={C.gold} stroke={C.ink} strokeWidth="0.8" strokeLinejoin="round" filter="url(#wobble)" />
+        fill={C.yellow} stroke={C.ink} strokeWidth="0.8" strokeLinejoin="round" filter="url(#wobble)" />
     </svg>
   );
 }
@@ -363,7 +368,7 @@ function Sun({ size = 60, style = {} }: { size?: number; style?: CSSProperties }
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={style}>
       <g filter="url(#wobble)">
-        <circle cx="50" cy="50" r="20" fill={C.gold} stroke={C.ink} strokeWidth="2" />
+        <circle cx="50" cy="50" r="20" fill={C.yellow} stroke={C.ink} strokeWidth="2" />
         {Array.from({ length: 12 }, (_, i) => {
           const a = (i / 12) * Math.PI * 2;
           return (
@@ -473,7 +478,7 @@ function BeachSketch({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size * 0.78} viewBox="0 0 36 28">
       <g filter="url(#wobble)">
-        <circle cx="28" cy="7" r="3.2" fill={C.gold} stroke={C.ink} strokeWidth="1" />
+        <circle cx="28" cy="7" r="3.2" fill={C.yellow} stroke={C.ink} strokeWidth="1" />
         <path d="M9 22 Q 8 14, 11 7"  stroke={C.ink} strokeWidth="1.4" fill="none" strokeLinecap="round" />
         <path d="M11 7 Q 5 4, 2 7"    stroke={C.ink} strokeWidth="1.2" fill="none" strokeLinecap="round" />
         <path d="M11 7 Q 16 3, 20 5"  stroke={C.ink} strokeWidth="1.2" fill="none" strokeLinecap="round" />
@@ -745,7 +750,7 @@ function NextHero({ direction, itineraries, todayLabel, todayStr }: {
     return (
       <div style={{ margin: '2px 18px 12px' }}>
         <SketchBox color={C.ink} fill={toPines ? C.gold : C.ocean} radius={20} sw={1.8} pad={14}>
-          <div style={{ fontFamily: F.hand, color: toPines ? '#5b4a18' : '#e9f5fc', fontSize: 15 }}>
+          <div style={{ fontFamily: F.hand, color: '#FFFFFF', fontSize: 15 }}>
             {toPines ? 'No more trains today — check back tomorrow!' : 'No more ferries today — see you next time!'}
           </div>
         </SketchBox>
@@ -776,10 +781,10 @@ function NextHero({ direction, itineraries, todayLabel, todayStr }: {
 
           {/* Top row: title + countdown on the left, stoplight chip on the right */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-            <div style={{ fontFamily: F.hand, fontSize: 15, color: toPines ? '#5b4a18' : '#e9f5fc', letterSpacing: 0.3, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: F.hand, fontSize: 15, color: '#FFFFFF', letterSpacing: 0.3, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
               {title}
               {showCountdown && (
-                <span style={{ fontFamily: F.marker, color: toPines ? C.ink : '#fff' }}>
+                <span style={{ fontFamily: F.marker, color: '#FFFFFF' }}>
                   {' · in '}{countdownStr(diffMin)}
                 </span>
               )}
@@ -801,12 +806,12 @@ function NextHero({ direction, itineraries, todayLabel, todayStr }: {
           </div>
 
           {/* Big disco time */}
-          <div style={{ fontFamily: F.disco, fontSize: 34, letterSpacing: 1.5, color: C.ink, lineHeight: 1, marginTop: 6 }}>
+          <div style={{ fontFamily: F.disco, fontSize: 34, letterSpacing: 1.5, color: '#FFFFFF', lineHeight: 1, marginTop: 6 }}>
             {next.depart.toUpperCase()}
           </div>
 
           {/* Subtitle (route summary) */}
-          <div style={{ fontFamily: F.hand, fontSize: 14, marginTop: 4, color: toPines ? '#5b4a18' : '#e9f5fc', lineHeight: 1.25, maxWidth: 'calc(100% - 80px)' }}>
+          <div style={{ fontFamily: F.hand, fontSize: 14, marginTop: 4, color: '#FFFFFF', lineHeight: 1.25, maxWidth: 'calc(100% - 80px)' }}>
             {sub}
           </div>
 
