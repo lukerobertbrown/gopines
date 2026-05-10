@@ -89,8 +89,8 @@ const SKINS: Skin[] = [
     palette: GRANDMAS_PALETTE,
     copy: {
       wordmark: 'SPONSORED BY DOORDASH GRANDMAS OF 512 FISHERMANS',
-      heroToPines: 'YOUR DASHER ARRIVES IN',
-      heroToPenn:  'RETURN DASH PICKUP IN',
+      heroToPines: 'NEXT TRAIN DASH',
+      heroToPenn:  'NEXT FERRY DASH',
       emptyToPines: "Kitchen's closed — check back tomorrow!",
       emptyToPenn:  'Last dash of the day — see you next time!',
       stoplight: { green: 'dashpass', amber: 'tight', red: 'slow lane' },
