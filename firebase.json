@@ -21,6 +21,16 @@
         "region": "us-east1"
       },
       {
+        "source": "/api/lirrRealtime",
+        "function": "getLirrRealtime",
+        "region": "us-east1"
+      },
+      {
+        "source": "/api/lirrScheduleLive",
+        "function": "getLirrScheduleLive",
+        "region": "us-east1"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

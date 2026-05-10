@@ -82,4 +82,14 @@ Add a workflow later that runs `npm ci`, `npm run build`, and deploys using **Wo
 
 Store `MTA_API_KEY` in **Secret Manager** and grant the Functions runtime service account **Secret Accessor**. Do not commit API keys; keep `.env` local and listed in `.gitignore`.
 
-**Static LIRR timetables** (`getLirrSchedule`, `/api/lirrSchedule`) use the public GTFS zip on AWS (`gtfslirr.zip`) and do **not** need the MTA API key. The key is for **GTFS-Realtime** and other `api-endpoint.mta.info` feeds.
+**Static LIRR timetables** (`getLirrSchedule`, `/api/lirrSchedule`) use the public GTFS zip on AWS (`gtfslirr.zip`) and do **not** need the MTA API key.
+
+**Live GTFS-Realtime** (`getLirrScheduleLive` → `/api/lirrScheduleLive`, and `getLirrRealtime` → `/api/lirrRealtime`) call `https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/lirr%2Fgtfs-lirr` with header `x-api-key`. Store your key in Secret Manager and attach it to Functions:
+
+```bash
+# one-time (paste key at prompt)
+firebase functions:secrets:set MTA_API_KEY
+firebase deploy --only functions
+```
+
+Grant the default compute service account **Secret Manager Secret Accessor** on `MTA_API_KEY` if the CLI did not already.

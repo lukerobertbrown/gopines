@@ -187,6 +187,9 @@ function buildJourneysForDay({
         arrSec: timeToSec(byId.get(dest).arrival_time),
         legs: [
           {
+            tripId,
+            fromStopId: origin,
+            toStopId: dest,
             train: tMeta.trip_short_name,
             headsign: tMeta.trip_headsign,
             from: names.get(origin),
@@ -235,6 +238,9 @@ function buildJourneysForDay({
           arrSec: arrDest,
           legs: [
             {
+              tripId: tripId1,
+              fromStopId: origin,
+              toStopId: X,
               train: t1.trip_short_name,
               headsign: t1.trip_headsign,
               from: names.get(origin),
@@ -243,6 +249,9 @@ function buildJourneysForDay({
               arr: r.arrival_time,
             },
             {
+              tripId: leg2.tripId,
+              fromStopId: X,
+              toStopId: dest,
               train: leg2.meta.trip_short_name,
               headsign: leg2.meta.trip_headsign,
               from: names.get(X),
@@ -358,7 +367,7 @@ async function buildSchedulePayload(numDays = 14) {
     source: GTFS_ZIP_URL,
     feedVersion: gtfs.feedInfo.feed_version || "",
     disclaimer:
-      "Static schedule from MTA GTFS (no real-time delays). Transfer buffer 5 min. At most one transfer; up to 200 options per direction per day after deduping by Penn/Sayville departure minute.",
+      "Static schedule from MTA GTFS. Use Hosting /api/lirrScheduleLive to merge GTFS-Realtime delays for today (requires MTA_API_KEY secret). Transfer buffer 5 min. At most one transfer; up to 200 options per direction per day after deduping by Penn/Sayville departure minute.",
     stops: {
       penn: { id: PENN_ID, name: names.get(PENN_ID) },
       sayville: { id: SAYVILLE_ID, name: names.get(SAYVILLE_ID) },
@@ -370,4 +379,7 @@ async function buildSchedulePayload(numDays = 14) {
 module.exports = {
   buildSchedulePayload,
   GTFS_ZIP_URL,
+  formatYmdNy,
+  PENN_ID,
+  SAYVILLE_ID,
 };

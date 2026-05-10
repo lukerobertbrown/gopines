@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 
 type Leg = {
+  tripId?: string;
+  fromStopId?: string;
+  toStopId?: string;
   train: string;
   headsign: string;
   from: string;
   to: string;
   dep: string;
   arr: string;
+  delaySec?: number;
+  delayMin?: number;
 };
 
 type Journey = {
@@ -15,6 +20,7 @@ type Journey = {
   durationMin: number;
   transferAt: string | null;
   legs: Leg[];
+  maxDelayMin?: number;
 };
 
 type DayBlock = {
@@ -33,26 +39,41 @@ type ScheduleResponse = {
   disclaimer: string;
   stops: { penn: { name: string }; sayville: { name: string } };
   days: DayBlock[];
+  realtime?: {
+    source: string;
+    mergedForDate: string;
+    feedHeaderTimestamp: number | null;
+    note: string;
+  };
   error?: string;
 };
 
-const scheduleUrl = "/api/lirrSchedule";
+const scheduleStaticUrl = "/api/lirrSchedule";
+const scheduleLiveUrl = "/api/lirrScheduleLive";
 
 function JourneyRow({ j }: { j: Journey }) {
   const transfer =
     j.transferAt != null ? (
       <span style={{ color: "#555" }}> via {j.transferAt}</span>
     ) : null;
+  const tripDelay =
+    j.maxDelayMin != null && j.maxDelayMin > 0 ? (
+      <span style={{ color: "#b45309", fontSize: "0.85em" }}> · up to +{j.maxDelayMin}m RT</span>
+    ) : null;
   return (
     <tr>
       <td style={{ padding: "4px 8px", verticalAlign: "top", whiteSpace: "nowrap" }}>
         {j.depart} → {j.arrive}
+        {tripDelay}
       </td>
       <td style={{ padding: "4px 8px", verticalAlign: "top" }}>{j.durationMin}m</td>
       <td style={{ padding: "4px 8px", verticalAlign: "top", fontSize: "0.9em" }}>
         {j.legs.map((leg, i) => (
           <div key={i} style={{ marginBottom: i < j.legs.length - 1 ? 6 : 0 }}>
             <strong>{leg.train || "—"}</strong> {leg.headsign ? `· ${leg.headsign}` : ""}
+            {leg.delayMin != null && leg.delayMin > 0 ? (
+              <span style={{ color: "#b45309" }}> +{leg.delayMin}m</span>
+            ) : null}
             <br />
             <span style={{ color: "#444" }}>
               {leg.from} {leg.dep.slice(0, 5)} → {leg.to} {leg.arr.slice(0, 5)}
@@ -69,13 +90,19 @@ export function App() {
   const [data, setData] = useState<ScheduleResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [useLiveMta, setUseLiveMta] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${scheduleUrl}?days=14`)
+    setLoading(true);
+    setErr(null);
+    const q = new URLSearchParams({ days: "14" });
+    const url = useLiveMta ? scheduleLiveUrl : scheduleStaticUrl;
+    fetch(`${url}?${q}`)
       .then(async (r) => {
-        if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-        return r.json() as Promise<ScheduleResponse>;
+        const text = await r.text();
+        if (!r.ok) throw new Error(`${r.status} ${text}`);
+        return JSON.parse(text) as ScheduleResponse;
       })
       .then((j) => {
         if (!cancelled) setData(j);
@@ -89,21 +116,28 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [useLiveMta]);
 
   return (
     <main style={{ fontFamily: "system-ui, sans-serif", padding: "1.5rem", maxWidth: "52rem" }}>
       <h1 style={{ marginTop: 0 }}>gopines.gay</h1>
-      <p style={{ marginBottom: "1.25rem" }}>
-        NYC → Bay Shore → Fire Island Pines. Below: raw static LIRR timetable{" "}
-        <strong>Penn Station ↔ Sayville</strong> (next 14 days, America/New_York).
+      <p style={{ marginBottom: "0.75rem" }}>
+        NYC → Bay Shore → Fire Island Pines. Raw LIRR timetable <strong>Penn Station ↔ Sayville</strong> (14 days,
+        America/New_York).
       </p>
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: "1rem", cursor: "pointer" }}>
+        <input type="checkbox" checked={useLiveMta} onChange={(e) => setUseLiveMta(e.target.checked)} />
+        <span>
+          Merge live MTA feed (GTFS-Realtime) for <strong>today</strong> — needs <code>MTA_API_KEY</code> secret on
+          Functions
+        </span>
+      </label>
 
       {loading && <p>Loading schedule…</p>}
       {err && (
         <p style={{ color: "#a00" }}>
-          Could not load schedule ({err}). Deploy <code>getLirrSchedule</code> and Hosting rewrite, or run{" "}
-          <code>npm run dev</code> (proxies <code>/api</code> to production).
+          Could not load schedule ({err}). For live mode, set the secret:{" "}
+          <code>firebase functions:secrets:set MTA_API_KEY</code> then redeploy. Static mode works without it.
         </p>
       )}
 
@@ -112,6 +146,15 @@ export function App() {
           <p style={{ fontSize: "0.85rem", color: "#444" }}>
             Feed <code>{data.feedVersion}</code> · {data.disclaimer}
           </p>
+          {data.realtime && (
+            <p style={{ fontSize: "0.85rem", color: "#166534", background: "#f0fdf4", padding: "0.5rem 0.75rem" }}>
+              Live: {data.realtime.source}
+              {data.realtime.feedHeaderTimestamp != null
+                ? ` · feed ts ${data.realtime.feedHeaderTimestamp}`
+                : ""}{" "}
+              · merged for {data.realtime.mergedForDate}. {data.realtime.note}
+            </p>
+          )}
           {data.days.map((d) => (
             <section key={d.date} style={{ marginBottom: "2rem" }}>
               <h2 style={{ fontSize: "1.1rem", marginBottom: "0.5rem" }}>
