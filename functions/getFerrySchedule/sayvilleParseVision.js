@@ -18,7 +18,19 @@
  *      and a human `dayLabel`.
  */
 
-const { extractTimesFromLine } = require("./sayvilleParsePdf");
+const { extractTimesFromLine, to24h } = require("./sayvilleParsePdf");
+
+// Vision OCR sometimes splits "7:00A" into separate tokens ("7", ":", "00A")
+// that re-join with spaces; this looser regex accepts whitespace between parts.
+function extractTimesLoose(line) {
+  const out = [];
+  const re = /(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM|NOON|A|P|N)(?![A-Za-z])/gi;
+  for (const m of line.matchAll(re)) {
+    const t24 = to24h(m[1], m[2], m[3]);
+    if (t24) out.push({ departureTime: t24, raw: m[0].trim() });
+  }
+  return out;
+}
 
 const DAY_NAMES = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
 // Case-sensitive: matches the all-caps headers (MONDAY, THURSDAY, etc.) but
@@ -157,9 +169,6 @@ function geometryParse(ann) {
   const page = ann.pages && ann.pages[0];
   if (!page) return null;
 
-  const pageW = page.width || 1000;
-  const midX = pageW / 2;
-
   /** @type {{ text: string, cx: number, cy: number }[]} */
   const words = [];
   for (const block of page.blocks || []) {
@@ -178,63 +187,89 @@ function geometryParse(ann) {
 
   if (words.length === 0) return null;
 
-  const lines = clusterLines(words, 14);
-  const dayHeaders = findDayHeaders(lines);
-  if (dayHeaders.length === 0) return null;
-
-  const leftHeaders = dayHeaders.filter((h) => h.cx < midX).sort((a, b) => a.cy - b.cy);
-  const rightHeaders = dayHeaders.filter((h) => h.cx >= midX).sort((a, b) => a.cy - b.cy);
-  const sections = [
-    ...buildSections(leftHeaders, 0, midX),
-    ...buildSections(rightHeaders, midX, pageW + 100),
-  ];
+  // The schedule lays out two page-halves, each independently row-stacked.
+  // Vision tends to cluster across both halves (e.g. "MONDAY - WEDNESDAY INCL.
+  // SATURDAY" all on one line), so we split words at midX BEFORE clustering
+  // into lines. Each half then yields its own day headers, sections, and time
+  // rows independently.
+  const maxCx = words.reduce((m, w) => Math.max(m, w.cx), 0);
+  const pageW = page.width && page.width > 100 ? page.width : maxCx + 60;
+  const midX = pageW / 2;
 
   const trips = [];
+  const halves = [
+    { xMin: 0, xMax: midX, name: "left" },
+    { xMin: midX, xMax: pageW + 200, name: "right" },
+  ];
 
-  for (const line of lines) {
-    const text = line.words.map((w) => w.text).join(" ");
-    // Skip header-only lines (no digits, day name match).
-    if (!/\d/.test(text) && DAY_RE.test(text)) continue;
+  for (const half of halves) {
+    const halfWords = words.filter((w) => w.cx >= half.xMin && w.cx < half.xMax);
+    if (halfWords.length === 0) continue;
 
-    const times = extractTimesFromLine(text);
-    if (times.length === 0) continue;
+    const lines = clusterLines(halfWords, 14);
+    const dayHeaders = findDayHeaders(lines);
 
-    const lineCx = line.words.reduce((s, w) => s + w.cx, 0) / line.words.length;
-    const sec = findOwningSection(line.cy, lineCx, sections);
-    if (!sec) continue;
+    try {
+      console.log(`[parser] half=${half.name} words=${halfWords.length} lines=${lines.length} dayHeaders=${dayHeaders.length}`);
+      for (const h of dayHeaders) {
+        console.log(`[parser] half=${half.name} header="${h.label}" cy=${Math.round(h.cy)}`);
+      }
+    } catch (_) { /* ignore */ }
 
-    if (times.length >= 2) {
-      // Two columns in one row: time[0] = leftmost = sayville_to_pines.
-      trips.push({
-        daysOfWeek: sec.days,
-        dayLabel: sec.label,
-        direction: "sayville_to_pines",
-        departureTime: times[0].departureTime,
-        sourceColumn: "left",
-        rawLine: text.slice(0, 160),
-      });
-      trips.push({
-        daysOfWeek: sec.days,
-        dayLabel: sec.label,
-        direction: "pines_to_sayville",
-        departureTime: times[1].departureTime,
-        sourceColumn: "right",
-        rawLine: text.slice(0, 160),
-      });
-    } else {
-      // Single time on the line — use X-position vs section midpoint.
-      const sectionMidX = (sec.xMin + sec.xMax) / 2;
-      const timeWord = line.words.find((w) => /\d{1,2}:\d{2}/.test(w.text));
-      const tx = timeWord ? timeWord.cx : lineCx;
-      const direction = tx < sectionMidX ? "sayville_to_pines" : "pines_to_sayville";
-      trips.push({
-        daysOfWeek: sec.days,
-        dayLabel: sec.label,
-        direction,
-        departureTime: times[0].departureTime,
-        sourceColumn: direction === "sayville_to_pines" ? "left" : "right",
-        rawLine: text.slice(0, 160),
-      });
+    if (dayHeaders.length === 0) continue;
+
+    const sortedHeaders = dayHeaders.slice().sort((a, b) => a.cy - b.cy);
+    const sections = sortedHeaders.map((h, i) => ({
+      days: h.days,
+      label: h.label,
+      yMin: h.cy,
+      yMax: i + 1 < sortedHeaders.length ? sortedHeaders[i + 1].cy : Number.POSITIVE_INFINITY,
+      xMin: half.xMin,
+      xMax: half.xMax,
+    }));
+
+    const halfMid = (half.xMin + half.xMax) / 2;
+
+    for (const line of lines) {
+      const text = line.words.map((w) => w.text).join(" ");
+      if (!/\d/.test(text) && DAY_RE.test(text)) continue;
+
+      const times = extractTimesLoose(text);
+      if (times.length === 0) continue;
+
+      const sec = sections.find((s) => line.cy > s.yMin + 4 && line.cy < s.yMax - 4);
+      if (!sec) continue;
+
+      if (times.length >= 2) {
+        trips.push({
+          daysOfWeek: sec.days,
+          dayLabel: sec.label,
+          direction: "sayville_to_pines",
+          departureTime: times[0].departureTime,
+          sourceColumn: "left",
+          rawLine: text.slice(0, 160),
+        });
+        trips.push({
+          daysOfWeek: sec.days,
+          dayLabel: sec.label,
+          direction: "pines_to_sayville",
+          departureTime: times[1].departureTime,
+          sourceColumn: "right",
+          rawLine: text.slice(0, 160),
+        });
+      } else {
+        const timeWord = line.words.find((w) => /\d{1,2}:\d{2}/.test(w.text));
+        const tx = timeWord ? timeWord.cx : (line.words.reduce((s, w) => s + w.cx, 0) / line.words.length);
+        const direction = tx < halfMid ? "sayville_to_pines" : "pines_to_sayville";
+        trips.push({
+          daysOfWeek: sec.days,
+          dayLabel: sec.label,
+          direction,
+          departureTime: times[0].departureTime,
+          sourceColumn: direction === "sayville_to_pines" ? "left" : "right",
+          rawLine: text.slice(0, 160),
+        });
+      }
     }
   }
 
