@@ -134,8 +134,15 @@ function countdownStr(totalMin: number): string {
   return `~${Math.round(totalMin / 60)}h`;
 }
 
-function sl(min: number): Stoplight {
-  return min <= 150 ? 'green' : min <= 180 ? 'amber' : 'red';
+// Trip classification:
+//   • avoid (red)   = 3h+ door-to-door, regardless of layover
+//   • doable (amber)= short trip but tight (<20 min) Sayville transfer
+//   • breeze (green)= short trip with a comfortable (≥20 min) Sayville layover
+const COMFORT_LAYOVER_MIN = 20;
+const AVOID_TOTAL_MIN = 180;
+function sl(totalMin: number, layoverMin: number): Stoplight {
+  if (totalMin >= AVOID_TOTAL_MIN) return 'red';
+  return layoverMin >= COMFORT_LAYOVER_MIN ? 'green' : 'amber';
 }
 
 function slInfo(s: Stoplight) {
@@ -231,7 +238,7 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number, da
       id: ++id,
       depart: fmt(j.depart),    departRaw: j.depart.slice(0, 5),
       arrive: fmt(pinesArrRaw), arriveRaw: pinesArrRaw,
-      layover, total, stoplight: sl(total), best: false,
+      layover, total, stoplight: sl(total, layover), best: false,
       segments,
     });
   }
@@ -272,7 +279,7 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number, date
       id: ++id,
       depart: fmt(ferryDep),      departRaw: ferryDep,
       arrive: fmt(train.arrive),  arriveRaw: train.arrive.slice(0, 5),
-      layover, total, stoplight: sl(total), best: false,
+      layover, total, stoplight: sl(total, layover), best: false,
       segments,
     });
   }
@@ -488,6 +495,126 @@ function SkylineSketch({ size = 28 }: { size?: number }) {
 }
 
 // ─── Feature components ───────────────────────────────────────────────────────
+// Build an ICS DTSTART/DTEND value (no Z; uses TZID=America/New_York from
+// the wrapping property). dateStr is "YYYY-MM-DD"; hhmm is "HH:MM" (or
+// "25:30" for after-midnight arrivals — addMin doesn't mod 24, so we honour
+// the rollover here so the calendar event lands on the correct day).
+function hhmmToIcsDateTime(dateStr: string, hhmm: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hRaw, mnRaw] = (hhmm || '').slice(0, 5).split(':').map(Number);
+  const totalMins = (hRaw || 0) * 60 + (mnRaw || 0);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  dt.setUTCMinutes(dt.getUTCMinutes() + totalMins);
+  const yyyy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  const hh = String(dt.getUTCHours()).padStart(2, '0');
+  const mins = String(dt.getUTCMinutes()).padStart(2, '0');
+  return `${yyyy}${mm}${dd}T${hh}${mins}00`;
+}
+
+// RFC 5545 line folding & escape rules — newlines in TEXT properties become
+// literal "\n", commas/semicolons/backslashes get backslash-escaped.
+function icsEscape(text: string): string {
+  return (text || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
+}
+
+function buildIcs(opts: {
+  dateStr: string;
+  departRaw: string;
+  arriveRaw: string;
+  summary: string;
+  description: string;
+  location: string;
+  uid: string;
+}): string {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//gopines.gay//Trip//EN',
+    'BEGIN:VEVENT',
+    `UID:${opts.uid}`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;TZID=America/New_York:${hhmmToIcsDateTime(opts.dateStr, opts.departRaw)}`,
+    `DTEND;TZID=America/New_York:${hhmmToIcsDateTime(opts.dateStr, opts.arriveRaw)}`,
+    `SUMMARY:${icsEscape(opts.summary)}`,
+    `DESCRIPTION:${icsEscape(opts.description)}`,
+    `LOCATION:${icsEscape(opts.location)}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ];
+  return lines.join('\r\n');
+}
+
+function CalendarInviteButton({
+  it, direction, dateStr, dateLabel, style = {},
+}: {
+  it: Itinerary;
+  direction: 'to-pines' | 'to-penn';
+  dateStr: string;
+  dateLabel: string;
+  style?: CSSProperties;
+}) {
+  const [added, setAdded] = useState(false);
+
+  const onClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    const toPines = direction === 'to-pines';
+    const summary = toPines ? 'Pines bound' : 'Heading to Penn';
+    const firstSeg = it.segments[0];
+    const location = firstSeg ? firstSeg.fromTo.split(' → ')[0] : (toPines ? 'Penn Station' : 'Pines Ferry');
+    const description = buildShareText(direction, dateLabel, it.segments);
+    const uid = `gopines-${dateStr}-${it.departRaw.replace(':', '')}-${direction}@gopines.gay`;
+    const ics = buildIcs({
+      dateStr,
+      departRaw: it.departRaw,
+      arriveRaw: it.arriveRaw,
+      summary,
+      description,
+      location,
+      uid,
+    });
+    const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gopines-${dateStr}-${it.departRaw.replace(':', '')}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    setAdded(true);
+    setTimeout(() => setAdded(false), 1400);
+  };
+
+  return (
+    <button onClick={onClick} aria-label="add trip to calendar" style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      border: '1.2px solid ' + C.ink,
+      background: 'rgba(255,255,255,0.7)', color: C.ink, cursor: 'pointer',
+      borderRadius: 999, padding: '3px 9px',
+      fontFamily: F.marker, fontSize: 11, letterSpacing: 0.6,
+      boxShadow: '1px 1.5px 0 ' + C.ink,
+      ...style,
+    }}>
+      <svg width="11" height="11" viewBox="0 0 14 14">
+        <g stroke={C.ink} strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#wobble)">
+          <rect x="1.5" y="3" width="11" height="9.5" rx="1.2" />
+          <line x1="1.5" y1="6" x2="12.5" y2="6" />
+          <line x1="4" y1="1.5" x2="4" y2="4" />
+          <line x1="10" y1="1.5" x2="10" y2="4" />
+        </g>
+      </svg>
+      {added ? 'ADDED' : 'ADD'}
+    </button>
+  );
+}
+
 function ShareButton({ text, tone = 'light', style = {} }: {
   text: string; tone?: 'light' | 'dark'; style?: CSSProperties;
 }) {
@@ -692,10 +819,11 @@ function buildShareText(direction: 'to-pines' | 'to-penn', dateLabel: string, se
   return `${dateLabel}\n${dirLabel}\n\n${bullets}\n\ngopines.gay`;
 }
 
-function ItineraryRow({ it, direction, dateLabel }: {
+function ItineraryRow({ it, direction, dateLabel, dateStr }: {
   it: Itinerary;
   direction: 'to-pines' | 'to-penn';
   dateLabel: string;
+  dateStr: string;
 }) {
   const { bg, label } = slInfo(it.stoplight);
   const anim = it.best;
@@ -768,8 +896,9 @@ function ItineraryRow({ it, direction, dateLabel }: {
           })}
         </div>
 
-        {/* Share */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+        {/* Action row: calendar invite + share */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
+          <CalendarInviteButton it={it} direction={direction} dateStr={dateStr} dateLabel={dateLabel} />
           <ShareButton text={shareText} />
         </div>
 
@@ -793,9 +922,6 @@ function DatePickerStrip({ value, onChange, dates }: {
 }) {
   return (
     <div style={{ margin: '6px 0 10px' }}>
-      <div style={{ fontFamily: F.marker, fontSize: 14, letterSpacing: 0.8, color: C.ink, padding: '0 18px 6px' }}>
-        WHEN ?
-      </div>
       <div style={{ overflowX: 'auto', padding: '4px 18px 8px' }}>
         <div style={{ display: 'flex', gap: 8, paddingBottom: 4 }}>
           {dates.map(d => {
@@ -1413,7 +1539,7 @@ export function App() {
                 </div>
               ) : (
                 filtered.map(it => (
-                  <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} />
+                  <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} dateStr={dates[dateIdx].dateStr} />
                 ))
               )}
             </div>
