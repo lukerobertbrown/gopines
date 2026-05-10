@@ -56,6 +56,8 @@ type FerryTrip = {
   daysOfWeek?: number[] | null;  // 0=Sun..6=Sat; null/undefined = applies to all days
   dayLabel?: string | null;
   extraStops?: boolean;            // ▲: boats that stop at Cherry Grove en route
+  effectiveStart?: string | null;  // YYYY-MM-DD; trip is unavailable on dates before this
+  effectiveEnd?: string | null;    // YYYY-MM-DD; trip is unavailable on dates after this
 };
 
 type FerryResp = {
@@ -186,12 +188,19 @@ function markBest(list: Itinerary[]) {
   for (const r of list) { if (!done && r.total === minT) { r.best = true; done = true; } }
 }
 
-function ferriesForDay(ferries: FerryTrip[], dow: number): FerryTrip[] {
-  return ferries.filter(f => !Array.isArray(f.daysOfWeek) || f.daysOfWeek.includes(dow));
+function ferriesForDay(ferries: FerryTrip[], dow: number, dateStr?: string): FerryTrip[] {
+  return ferries.filter(f => {
+    if (Array.isArray(f.daysOfWeek) && !f.daysOfWeek.includes(dow)) return false;
+    if (dateStr) {
+      if (f.effectiveStart && dateStr < f.effectiveStart) return false;
+      if (f.effectiveEnd && dateStr > f.effectiveEnd) return false;
+    }
+    return true;
+  });
 }
 
-function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number): Itinerary[] {
-  const dayFerries = ferriesForDay(ferries, dow);
+function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number, dateStr?: string): Itinerary[] {
+  const dayFerries = ferriesForDay(ferries, dow, dateStr);
   const pines = dayFerries
     .filter(f => f.direction === 'sayville_to_pines' || f.direction === 'unknown')
     .map(f => f.departureTime.slice(0, 5))
@@ -230,8 +239,8 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number): I
   return result;
 }
 
-function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number): Itinerary[] {
-  const dayFerries = ferriesForDay(ferries, dow);
+function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number, dateStr?: string): Itinerary[] {
+  const dayFerries = ferriesForDay(ferries, dow, dateStr);
   const hasPenn = dayFerries.some(f => f.direction === 'pines_to_sayville');
   const pennDeps = dayFerries
     .filter(f => hasPenn ? f.direction === 'pines_to_sayville' : f.direction === 'unknown')
@@ -917,6 +926,32 @@ function dowSortKey(d: number) { return d === 0 ? 7 : d; }
 // Shorten weekday names in a date range string ("Friday, April 17 thru
 // Wednesday, May 20" → "Fri, April 17 thru Wed, May 20") so the header reads
 // compactly under the schedule title.
+// "2026-05-11" → "May 11" (used to render trip-level effectiveStart/End notes).
+function shortDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return iso;
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const month = months[parseInt(m[2], 10) - 1] ?? m[2];
+  const day = parseInt(m[3], 10);
+  return `${month} ${day}`;
+}
+
+// Build a short human label for a trip's effective-date range, e.g.:
+//   STARTS MAY 11    → "starts May 11"
+//   ENDS MAY 20      → "ends May 20"
+//   APRIL 10 ONLY    → "Apr 10 only"
+//   STARTS+ENDS      → "May 11 — May 20"
+function effectiveLabel(t: FerryTrip): string {
+  const s = t.effectiveStart || null;
+  const e = t.effectiveEnd || null;
+  if (s && e && s === e) return `${shortDate(s)} only`;
+  if (s && e) return `${shortDate(s)} — ${shortDate(e)}`;
+  if (s) return `starts ${shortDate(s)}`;
+  if (e) return `ends ${shortDate(e)}`;
+  return '';
+}
+
 function shortenWeekdays(s: string | null | undefined): string {
   if (!s) return '';
   return s
@@ -1037,26 +1072,40 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
           const half = Math.ceil(d.trips.length / 2);
           const left = d.trips.slice(0, half);
           const right = d.trips.slice(half);
-          const renderItem = (t: FerryTrip) => (
-            <li key={t.departureTime + (t.extraStops ? 'x' : '')} style={{
-              display: 'flex', alignItems: 'baseline', gap: 8,
-              padding: '3px 0',
-            }}>
-              <span style={{ flex: 1, letterSpacing: 0.3 }}>{fmt(t.departureTime)}</span>
-              {t.extraStops && (
-                <span
-                  title="Boats stop at Cherry Grove en route"
-                  aria-label="stops at Cherry Grove"
-                  style={{
-                    fontFamily: F.marker, fontSize: 14, color: C.coral,
-                    flex: '0 0 auto', marginRight: 4,
-                  }}
-                >
-                  ▲
-                </span>
-              )}
-            </li>
-          );
+          const renderItem = (t: FerryTrip) => {
+            const eff = effectiveLabel(t);
+            return (
+              <li key={t.departureTime + (t.extraStops ? 'x' : '') + (eff || '')} style={{
+                display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 6,
+                padding: '3px 0',
+              }}>
+                <span style={{ letterSpacing: 0.3 }}>{fmt(t.departureTime)}</span>
+                {t.extraStops && (
+                  <span
+                    title="Boats stop at Cherry Grove en route"
+                    aria-label="stops at Cherry Grove"
+                    style={{
+                      fontFamily: F.marker, fontSize: 14, color: C.coral,
+                      flex: '0 0 auto',
+                    }}
+                  >
+                    ▲
+                  </span>
+                )}
+                {eff && (
+                  <span
+                    title={`Effective: ${eff}`}
+                    style={{
+                      fontFamily: F.hand, fontSize: 11, color: '#9b958c',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {eff}
+                  </span>
+                )}
+              </li>
+            );
+          };
           return (
             <SketchBox key={d.idx} color={C.ink} fill={C.paper} radius={14} sw={1.6} pad={0}
               style={{ marginBottom: 14 }}>
@@ -1276,8 +1325,8 @@ export function App() {
   let itineraries: Itinerary[] = [];
   if (selectedDay && ferryTrips.length) {
     const raw = direction === 'to-pines'
-      ? buildToPines(selectedDay.outbound, ferryTrips, selectedDow)
-      : buildToPenn(selectedDay.inbound, ferryTrips, selectedDow);
+      ? buildToPines(selectedDay.outbound, ferryTrips, selectedDow, dates[dateIdx].dateStr)
+      : buildToPenn(selectedDay.inbound, ferryTrips, selectedDow, dates[dateIdx].dateStr);
     itineraries = sort === 'latest' ? [...raw].reverse() : raw;
   }
 
@@ -1285,8 +1334,8 @@ export function App() {
   const todayDay = lirrData?.days?.find(d => d.date === today);
   const todayItineraries: Itinerary[] = (todayDay && ferryTrips.length)
     ? (direction === 'to-pines'
-        ? buildToPines(todayDay.outbound, ferryTrips, todayDow)
-        : buildToPenn(todayDay.inbound, ferryTrips, todayDow))
+        ? buildToPines(todayDay.outbound, ferryTrips, todayDow, today)
+        : buildToPenn(todayDay.inbound, ferryTrips, todayDow, today))
     : [];
 
   const fmtDateLabel = (dateStr: string) => {
