@@ -565,9 +565,15 @@ function NextHero({ direction, itineraries, todayLabel }: {
   const diffMin = toMin(next.departRaw) - nowM;
   const showCountdown = diffMin > 0 && diffMin < 12 * 60;
   const title = toPines ? 'NEXT TRAIN FROM PENN' : 'NEXT FERRY OFF THE PINES';
-  const firstSeg = next.segments[0];
-  const lastSeg  = next.segments[next.segments.length - 1];
-  const sub = `${firstSeg.fromTo} → ${lastSeg.time} ${lastSeg.kind === 'ferry' ? 'ferry' : 'train'}`;
+  const trainSegs = next.segments.filter(s => s.kind === 'train');
+  const ferrySeg  = next.segments.find(s => s.kind === 'ferry');
+  const trainPart = trainSegs.map(t => {
+    const dest = t.fromTo.split(' → ')[1] || t.fromTo;
+    return t.name ? `${dest} (${t.name})` : dest;
+  });
+  const ferryPart = ferrySeg ? `${ferrySeg.time} ferry` : '';
+  const subParts = toPines ? [...trainPart, ferryPart] : [ferryPart, ...trainPart];
+  const sub = subParts.filter(Boolean).join(' → ');
   const shareText = buildShareText(direction, todayLabel, next.segments);
   const slBg    = next.stoplight === 'green' ? C.green : C.amber;
   const slLabel = next.stoplight === 'green' ? 'breeze' : 'doable';
@@ -936,10 +942,10 @@ function AboutView() {
         </p>
         <p>
           Times come straight from the MTA's GTFS feed and a daily scrape of the Sayville
-          Ferry schedule. No accounts, no tracking, no ads.
+          Ferry schedule. No accounts, no ads.
         </p>
         <p style={{ marginBottom: 0 }}>
-          Built with love (and not much sleep) ☀️🌊
+          See you at tea ☀️🌊
         </p>
       </div>
     </div>
