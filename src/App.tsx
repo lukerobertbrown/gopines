@@ -575,12 +575,13 @@ function buildIcs(opts: {
 }
 
 function CalendarInviteButton({
-  it, direction, dateStr, dateLabel, style = {},
+  it, direction, dateStr, dateLabel, originLabel, style = {},
 }: {
   it: Itinerary;
   direction: 'to-pines' | 'to-penn';
   dateStr: string;
   dateLabel: string;
+  originLabel: string;
   style?: CSSProperties;
 }) {
   const [added, setAdded] = useState(false);
@@ -588,9 +589,9 @@ function CalendarInviteButton({
   const onClick = (e: MouseEvent) => {
     e.stopPropagation();
     const toPines = direction === 'to-pines';
-    const summary = toPines ? 'Pines bound' : 'Heading to Penn';
+    const summary = toPines ? 'Pines bound' : `Heading to ${originLabel}`;
     const firstSeg = it.segments[0];
-    const location = firstSeg ? firstSeg.fromTo.split(' → ')[0] : (toPines ? 'Penn Station' : 'Pines Ferry');
+    const location = firstSeg ? firstSeg.fromTo.split(' → ')[0] : (toPines ? originLabel : 'Pines Ferry');
     const description = buildShareText(direction, dateLabel, it.segments);
     const uid = `gopines-${dateStr}-${it.departRaw.replace(':', '')}-${direction}@gopines.gay`;
     const ics = buildIcs({
@@ -736,11 +737,12 @@ function DirectionToggle({ value, onChange }: {
   );
 }
 
-function NextHero({ direction, itineraries, todayLabel, todayStr }: {
+function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }: {
   direction: 'to-pines' | 'to-penn';
   itineraries: Itinerary[];   // always today's, earliest-first
   todayLabel: string;          // formatted, e.g. "Sat May 9, 2026"
   todayStr: string;            // YYYY-MM-DD for analytics payloads
+  originLabel: string;
 }) {
   const toPines = direction === 'to-pines';
   const nowM = toMin(nowNY());
@@ -760,7 +762,7 @@ function NextHero({ direction, itineraries, todayLabel, todayStr }: {
 
   const diffMin = toMin(next.departRaw) - nowM;
   const showCountdown = diffMin > 0 && diffMin < 12 * 60;
-  const title = toPines ? 'NEXT TRAIN FROM PENN' : 'NEXT FERRY OFF THE PINES';
+  const title = toPines ? `NEXT TRAIN FROM ${originLabel.toUpperCase()}` : 'NEXT FERRY OFF THE PINES';
   const trainSegs = next.segments.filter(s => s.kind === 'train');
   const ferrySeg  = next.segments.find(s => s.kind === 'ferry');
   const trainPart = trainSegs.map(t => {
@@ -854,11 +856,12 @@ function buildShareText(direction: 'to-pines' | 'to-penn', dateLabel: string, se
   return `${dateLabel}\n${dirLabel}\n\n${bullets}\n\ngopines.gay`;
 }
 
-function ItineraryRow({ it, direction, dateLabel, dateStr }: {
+function ItineraryRow({ it, direction, dateLabel, dateStr, originLabel }: {
   it: Itinerary;
   direction: 'to-pines' | 'to-penn';
   dateLabel: string;
   dateStr: string;
+  originLabel: string;
 }) {
   const { bg, label } = slInfo(it.stoplight);
   const shareText = buildShareText(direction, dateLabel, it.segments);
@@ -931,7 +934,7 @@ function ItineraryRow({ it, direction, dateLabel, dateStr }: {
 
         {/* Action row: calendar invite + share */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
-          <CalendarInviteButton it={it} direction={direction} dateStr={dateStr} dateLabel={dateLabel} />
+          <CalendarInviteButton it={it} direction={direction} dateStr={dateStr} dateLabel={dateLabel} originLabel={originLabel} />
           <ShareButton
             text={shareText}
             trackPayload={{
@@ -1067,7 +1070,13 @@ function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
 // ─── Menu / overlay panel ─────────────────────────────────────────────────────
 type PanelView = 'closed' | 'menu' | 'ferry' | 'about' | 'home-station';
 
-type HomeStation = 'penn';
+type HomeStation = 'penn' | 'grand-central' | 'atlantic';
+
+const STATION_LABELS: Record<HomeStation, string> = {
+  penn:            'Penn Station',
+  'grand-central': 'Grand Central Madison',
+  atlantic:        'Atlantic Terminal',
+};
 
 const HOME_STATION_KEY = 'gopines_home_station';
 
@@ -1387,10 +1396,10 @@ function AboutView() {
 }
 
 const STATIONS: { id: HomeStation | string; label: string; available: boolean }[] = [
-  { id: 'penn',     label: 'Penn Station',     available: true  },
-  { id: 'grand-central', label: 'Grand Central',    available: false },
-  { id: 'atlantic', label: 'Atlantic Terminal', available: false },
-  { id: 'woodside', label: 'Woodside',          available: false },
+  { id: 'penn',          label: 'Penn Station',        available: true  },
+  { id: 'grand-central', label: 'Grand Central Madison', available: true  },
+  { id: 'atlantic',      label: 'Atlantic Terminal',   available: true  },
+  { id: 'woodside',      label: 'Woodside',            available: false },
 ];
 
 function HomeStationView({
@@ -1565,7 +1574,7 @@ export function App() {
     setLoading(true);
     setErr(null);
     Promise.all([
-      fetch('/api/lirrScheduleLive?days=14').then(r => r.json() as Promise<ScheduleResp>),
+      fetch(`/api/lirrScheduleLive?days=14&origin=${homeStation}`).then(r => r.json() as Promise<ScheduleResp>),
       fetch('/api/ferrySchedule')
         .then(r => r.ok ? r.json() as Promise<FerryResp> : Promise.resolve(null))
         .catch(() => null),
@@ -1580,7 +1589,7 @@ export function App() {
       }
     }).catch(e => setErr(String((e as Error)?.message ?? e)))
       .finally(() => setLoading(false));
-  }, []);
+  }, [homeStation]);
 
   const selectedDay = lirrData?.days?.find(d => d.date === dates[dateIdx].dateStr);
   const ferryTrips  = ferryData?.trips ?? [];
@@ -1639,6 +1648,7 @@ export function App() {
           itineraries={todayItineraries.filter(i => i.stoplight !== 'red')}
           todayLabel={todayLabel}
           todayStr={today}
+          originLabel={STATION_LABELS[homeStation]}
         />
       )}
 
@@ -1681,7 +1691,7 @@ export function App() {
                 </div>
               ) : (
                 filtered.map(it => (
-                  <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} dateStr={dates[dateIdx].dateStr} />
+                  <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} dateStr={dates[dateIdx].dateStr} originLabel={STATION_LABELS[homeStation]} />
                 ))
               )}
             </div>
