@@ -26,7 +26,7 @@ const TZ = "America/New_York";
 const WALK_FROM_STATION_SEC = 600;
 
 /** Bump when parser logic changes to force a fresh ingest of unchanged source URLs. */
-const CURRENT_INGEST_VERSION = 3;
+const CURRENT_INGEST_VERSION = 4;
 
 /**
  * @param {FirebaseFirestore.DocumentData[]|undefined} trips
@@ -104,6 +104,8 @@ async function ingestPinesSchedule({ force = false } = {}) {
   const parsed = parseVisionDocumentResult(result);
   const trips = parsed.trips;
   const parseNotes = parsed.parseNotes;
+  const scheduleTitle = parsed.scheduleTitle ?? null;
+  const effectiveDateRange = parsed.effectiveDateRange ?? null;
 
   await docRef.set({
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -112,6 +114,8 @@ async function ingestPinesSchedule({ force = false } = {}) {
     sourcePageUrl: assets.sourcePageUrl,
     pngUrl: assets.pngUrl,
     pdfUrl: assets.pdfUrl || null,
+    scheduleTitle,
+    effectiveDateRange,
     trips,
     parseVersion: CURRENT_INGEST_VERSION,
     parseSource: "vision",
@@ -203,6 +207,8 @@ exports.getFerrySchedule = onRequest(
       res.set("Cache-Control", "public, max-age=120");
       res.status(200).json({
         effectiveLabel: data.effectiveLabel,
+        scheduleTitle: data.scheduleTitle ?? null,
+        effectiveDateRange: data.effectiveDateRange ?? null,
         updatedAt,
         sourcePageUrl: data.sourcePageUrl,
         pngUrl: data.pngUrl,

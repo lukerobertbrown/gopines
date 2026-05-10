@@ -108,9 +108,10 @@ function fallbackTextOnly(text) {
 }
 
 function clusterLines(words, yTol) {
-  words.sort((a, b) => a.cy - b.cy || a.cx - b.cx);
+  // Clone first — we sort, callers shouldn't see their array mutated.
+  const sorted = words.slice().sort((a, b) => a.cy - b.cy || a.cx - b.cx);
   const lines = [];
-  for (const w of words) {
+  for (const w of sorted) {
     let line = lines.find((l) => Math.abs(l.cy - w.cy) < yTol);
     if (!line) {
       line = { cy: w.cy, words: [] };
@@ -122,6 +123,37 @@ function clusterLines(words, yTol) {
   lines.sort((a, b) => a.cy - b.cy);
   for (const line of lines) line.words.sort((a, b) => a.cx - b.cx);
   return lines;
+}
+
+// Pull the human-readable schedule title (e.g. "Late Spring Schedule — 2026")
+// and the effective date range (e.g. "Friday, April 17 thru Wednesday, May 20")
+// from the lines above the topmost day-of-week header.
+function findScheduleHeader(allLines, dayHeaders) {
+  if (allLines.length === 0) return { title: null, dateRange: null };
+  const topY = dayHeaders.length
+    ? Math.min(...dayHeaders.map((h) => h.cy))
+    : Number.POSITIVE_INFINITY;
+
+  let title = null;
+  let dateRange = null;
+
+  for (const line of allLines) {
+    if (line.cy >= topY) break;
+    const raw = line.words.map((w) => w.text).join(" ");
+    // Tidy OCR spacing: collapse whitespace, drop spaces before commas/periods.
+    const text = raw.replace(/\s+([,.;:])/g, "$1").replace(/\s+/g, " ").trim();
+
+    if (!title && /SCHEDULE/i.test(text) && !/[a-z]/.test(text.replace(/\d|[\s—–\-,.]/g, ""))) {
+      title = titleCase(text)
+        .replace(/\s*-\s*/g, " — ")
+        .replace(/\s+/g, " ");
+    }
+    if (!dateRange && /\b(thru|through)\b/i.test(text)) {
+      dateRange = text;
+    }
+  }
+
+  return { title, dateRange };
 }
 
 function findDayHeaders(lines) {
@@ -196,6 +228,11 @@ function geometryParse(ann) {
   const pageW = page.width && page.width > 100 ? page.width : maxCx + 60;
   const midX = pageW / 2;
 
+  // Cluster all words (no halve-split) so we can find the page-spanning header
+  // text above the day-of-week sections.
+  const fullPageLines = clusterLines(words, 14);
+  const collectedDayHeaders = [];
+
   const trips = [];
   const halves = [
     { xMin: 0, xMax: midX, name: "left" },
@@ -217,6 +254,7 @@ function geometryParse(ann) {
     } catch (_) { /* ignore */ }
 
     if (dayHeaders.length === 0) continue;
+    for (const h of dayHeaders) collectedDayHeaders.push(h);
 
     const sortedHeaders = dayHeaders.slice().sort((a, b) => a.cy - b.cy);
     const sections = sortedHeaders.map((h, i) => ({
@@ -240,6 +278,11 @@ function geometryParse(ann) {
       const sec = sections.find((s) => line.cy > s.yMin + 4 && line.cy < s.yMax - 4);
       if (!sec) continue;
 
+      // Cherry-Grove-stop indicator: the source schedule prints a ▲ next to
+      // boats that make the extra stop at Cherry Grove on the way to/from
+      // Fire Island Pines. Vision OCR preserves the character on the row.
+      const extraStops = /▲/.test(text);
+
       if (times.length >= 2) {
         trips.push({
           daysOfWeek: sec.days,
@@ -247,6 +290,7 @@ function geometryParse(ann) {
           direction: "sayville_to_pines",
           departureTime: times[0].departureTime,
           sourceColumn: "left",
+          extraStops,
           rawLine: text.slice(0, 160),
         });
         trips.push({
@@ -255,6 +299,7 @@ function geometryParse(ann) {
           direction: "pines_to_sayville",
           departureTime: times[1].departureTime,
           sourceColumn: "right",
+          extraStops,
           rawLine: text.slice(0, 160),
         });
       } else {
@@ -267,6 +312,7 @@ function geometryParse(ann) {
           direction,
           departureTime: times[0].departureTime,
           sourceColumn: direction === "sayville_to_pines" ? "left" : "right",
+          extraStops,
           rawLine: text.slice(0, 160),
         });
       }
@@ -274,7 +320,14 @@ function geometryParse(ann) {
   }
 
   if (trips.length === 0) return null;
-  return { trips: dedupeTrips(trips), parseNotes: "geometry_day_aware" };
+
+  const { title, dateRange } = findScheduleHeader(fullPageLines, collectedDayHeaders);
+  return {
+    trips: dedupeTrips(trips),
+    parseNotes: "geometry_day_aware",
+    scheduleTitle: title,
+    effectiveDateRange: dateRange,
+  };
 }
 
 /**

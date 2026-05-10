@@ -55,11 +55,14 @@ type FerryTrip = {
   direction: 'sayville_to_pines' | 'pines_to_sayville' | 'unknown';
   daysOfWeek?: number[] | null;  // 0=Sun..6=Sat; null/undefined = applies to all days
   dayLabel?: string | null;
+  extraStops?: boolean;            // ▲: boats that stop at Cherry Grove en route
 };
 
 type FerryResp = {
   trips: FerryTrip[];
   effectiveLabel?: string;
+  scheduleTitle?: string | null;
+  effectiveDateRange?: string | null;
   sourcePageUrl?: string;
   pdfUrl?: string | null;
   updatedAt?: string;
@@ -911,6 +914,21 @@ function MenuLink({ label, onClick }: { label: string; onClick: () => void }) {
 // Sort key putting Mon=1..Sat=6 first, Sun=0 last so weekly grouping reads naturally.
 function dowSortKey(d: number) { return d === 0 ? 7 : d; }
 
+// Shorten weekday names in a date range string ("Friday, April 17 thru
+// Wednesday, May 20" → "Fri, April 17 thru Wed, May 20") so the header reads
+// compactly under the schedule title.
+function shortenWeekdays(s: string | null | undefined): string {
+  if (!s) return '';
+  return s
+    .replace(/Monday/g, 'Mon')
+    .replace(/Tuesday/g, 'Tue')
+    .replace(/Wednesday/g, 'Wed')
+    .replace(/Thursday/g, 'Thu')
+    .replace(/Friday/g, 'Fri')
+    .replace(/Saturday/g, 'Sat')
+    .replace(/Sunday/g, 'Sun');
+}
+
 function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | null; ferryMock: boolean }) {
   const [tab, setTab] = useState<'to-pines' | 'to-penn'>('to-pines');
   const trips = ferryData?.trips ?? [];
@@ -920,7 +938,7 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
        (t.direction === 'unknown' && !trips.some(x => x.direction === 'pines_to_sayville'))));
 
   // Group by dayLabel (or by sorted daysOfWeek). Trips with no day info → "Daily".
-  type Group = { label: string; minDay: number; times: string[] };
+  type Group = { label: string; minDay: number; trips: FerryTrip[] };
   const byKey = new Map<string, Group>();
   for (const t of filtered) {
     const days = Array.isArray(t.daysOfWeek) && t.daysOfWeek.length ? t.daysOfWeek : null;
@@ -928,33 +946,53 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
     const minDay = days ? Math.min(...days.map(dowSortKey)) : 99;
     const label = t.dayLabel || (days ? days.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : 'Daily');
     let g = byKey.get(key);
-    if (!g) { g = { label, minDay, times: [] }; byKey.set(key, g); }
-    g.times.push(t.departureTime.slice(0, 5));
+    if (!g) { g = { label, minDay, trips: [] }; byKey.set(key, g); }
+    g.trips.push(t);
   }
   const groups = [...byKey.values()].sort((a, b) => a.minDay - b.minDay);
+  // Sort each group's trips by departure time and dedupe identical (time,extraStops) pairs.
   for (const g of groups) {
-    g.times = [...new Set(g.times)].sort();
+    const seen = new Set<string>();
+    g.trips = g.trips
+      .slice()
+      .sort((a, b) => a.departureTime.localeCompare(b.departureTime))
+      .filter(t => {
+        const k = `${t.departureTime}-${t.extraStops ? '1' : '0'}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
   }
+
+  const title = ferryData?.scheduleTitle || 'Ferry Schedule';
+  const dateRange = shortenWeekdays(ferryData?.effectiveDateRange);
 
   return (
     <div>
-      <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink, marginBottom: 6 }}>
-        FERRY SCHEDULE
+      {/* Page header: scraped schedule title + date range */}
+      <div style={{
+        fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5,
+        color: C.ink, lineHeight: 1.1,
+      }}>
+        {title.toUpperCase()}
       </div>
-      {ferryData?.effectiveLabel && (
-        <div style={{ fontFamily: F.hand, fontSize: 14, color: '#7a736a', marginBottom: 10 }}>
-          {ferryData.effectiveLabel}
+      {dateRange && (
+        <div style={{
+          fontFamily: F.hand, fontSize: 14, color: '#7a736a',
+          marginTop: 4,
+        }}>
+          {dateRange}
         </div>
       )}
       {ferryMock && (
-        <div style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', marginBottom: 10 }}>
+        <div style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', marginTop: 6 }}>
           ⚠ estimated times — live schedule loads daily at 6am ET
         </div>
       )}
 
       {/* Tabs */}
       <div style={{
-        display: 'flex', gap: 0, marginBottom: 14,
+        display: 'flex', gap: 0, margin: '14px 0',
         border: '1.6px solid ' + C.ink, borderRadius: 999, padding: 3,
         background: C.paper,
       }}>
@@ -982,33 +1020,63 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
         </div>
       ) : (
         groups.map(g => (
-          <div key={g.label} style={{ marginBottom: 14 }}>
-            <div style={{
-              fontFamily: F.marker, fontSize: 14, letterSpacing: 0.6,
-              color: C.ink, marginBottom: 6, textTransform: 'uppercase',
-            }}>
-              {g.label}
-            </div>
-            <SketchBox color={C.ink} fill={C.paper} radius={12} sw={1.4} pad={12}>
+          <SketchBox key={g.label} color={C.ink} fill={C.paper} radius={14} sw={1.6} pad={0}
+            style={{ marginBottom: 14 }}>
+            <div style={{ padding: '10px 14px 12px' }}>
               <div style={{
-                display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px 6px',
+                fontFamily: F.marker, fontSize: 16, letterSpacing: 0.6,
+                color: C.ink, marginBottom: 8, textTransform: 'uppercase',
+                borderBottom: '1.2px dashed ' + C.ink, paddingBottom: 6,
               }}>
-                {g.times.map(t => (
-                  <div key={t} style={{
-                    fontFamily: F.marker, fontSize: 17, letterSpacing: 0.4,
-                    color: C.ink, textAlign: 'center',
-                  }}>
-                    {fmt(t)}
-                  </div>
-                ))}
+                {g.label}
               </div>
-            </SketchBox>
-          </div>
+              <ol style={{
+                margin: 0, padding: 0, listStyle: 'none',
+                fontFamily: F.marker, fontSize: 16, color: C.ink,
+              }}>
+                {g.trips.map((t, i) => (
+                  <li key={`${t.departureTime}-${i}`} style={{
+                    display: 'flex', alignItems: 'baseline', gap: 8,
+                    padding: '4px 0',
+                  }}>
+                    <span style={{
+                      fontFamily: F.hand, fontSize: 13, color: '#9b958c',
+                      width: 24, flex: '0 0 auto', textAlign: 'right',
+                    }}>{i + 1}.</span>
+                    <span style={{ flex: 1, letterSpacing: 0.3 }}>{fmt(t.departureTime)}</span>
+                    {t.extraStops && (
+                      <span
+                        title="Boats stop at Cherry Grove en route"
+                        aria-label="stops at Cherry Grove"
+                        style={{
+                          fontFamily: F.marker, fontSize: 14, color: C.coral,
+                          flex: '0 0 auto',
+                        }}
+                      >
+                        ▲
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </SketchBox>
         ))
       )}
 
+      {/* Cherry Grove footnote */}
+      {groups.some(g => g.trips.some(t => t.extraStops)) && (
+        <div style={{
+          fontFamily: F.hand, fontSize: 12, color: '#7a736a',
+          marginTop: 4, marginBottom: 12,
+        }}>
+          <span style={{ color: C.coral, fontFamily: F.marker, marginRight: 4 }}>▲</span>
+          stops at Cherry Grove en route to / from the Pines
+        </div>
+      )}
+
       {ferryData?.sourcePageUrl && (
-        <div style={{ marginTop: 18, fontFamily: F.hand, fontSize: 13, color: '#5a544c', textAlign: 'center' }}>
+        <div style={{ marginTop: 14, fontFamily: F.hand, fontSize: 13, color: '#5a544c', textAlign: 'center' }}>
           Source: <a href={ferryData.sourcePageUrl} target="_blank" rel="noreferrer" style={{ color: C.deep, textDecoration: 'underline' }}>
             sayvilleferry.com
           </a>
