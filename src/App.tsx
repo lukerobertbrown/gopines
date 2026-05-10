@@ -1487,7 +1487,10 @@ function HomeStationView({
         </button>
       ))}
       <button
-        onClick={() => {}}
+        onClick={() => window.open(
+          'https://github.com/lukerobertbrown/gopines/issues/new?template=station_request.md&title=[Station+Request]+',
+          '_blank', 'noopener,noreferrer'
+        )}
         style={{
           display: 'block', width: '100%', marginTop: 20,
           padding: '12px 0', textAlign: 'center',
