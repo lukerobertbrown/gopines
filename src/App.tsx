@@ -60,6 +60,13 @@ type FerryResp = { trips: FerryTrip[]; error?: string };
 // ─── UI types ─────────────────────────────────────────────────────────────────
 type Stoplight = 'green' | 'amber' | 'red';
 
+type Segment = {
+  kind: 'train' | 'bus' | 'ferry';
+  time: string;     // formatted, e.g. "8:08a"
+  fromTo: string;   // "Penn → Babylon"
+  name?: string;    // train number, e.g. "605"
+};
+
 type Itinerary = {
   id: number;
   depart: string;    // "8:08a"
@@ -70,10 +77,7 @@ type Itinerary = {
   total: number;     // total trip minutes
   stoplight: Stoplight;
   best: boolean;
-  legATime: string;
-  legASub: string;
-  legBTime: string;
-  legBSub: string;
+  segments: Segment[];
 };
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -176,15 +180,22 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
     const pinesArrRaw = addMin(ferry, FERRY_MIN);
     const total = toMin(pinesArrRaw) - toMin(j.depart.slice(0, 5));
     if (total < 60 || total > 240) continue;
+    const segments: Segment[] = [
+      ...j.legs.map(l => ({
+        kind: 'train' as const,
+        time: fmt(l.dep),
+        fromTo: `${l.from} → ${l.to}`,
+        name: l.train,
+      })),
+      { kind: 'bus',   time: fmt(sayArr), fromTo: 'Sayville Station → Ferry Terminal' },
+      { kind: 'ferry', time: fmt(ferry),  fromTo: 'Sayville → Pines' },
+    ];
     result.push({
       id: ++id,
       depart: fmt(j.depart),    departRaw: j.depart.slice(0, 5),
       arrive: fmt(pinesArrRaw), arriveRaw: pinesArrRaw,
       layover, total, stoplight: sl(total), best: false,
-      legATime: fmt(j.depart),
-      legASub: j.legs[0]?.headsign || j.legs[0]?.train || 'Babylon Br.',
-      legBTime: fmt(ferry),
-      legBSub: 'Sayville Ferry',
+      segments,
     });
   }
   markBest(result);
@@ -209,15 +220,22 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[]): Itinerary[] {
     if (layover > MAX_LAYOVER_MIN) continue;
     const total = toMin(train.arrive.slice(0, 5)) - toMin(ferryDep);
     if (total < 60 || total > 240) continue;
+    const segments: Segment[] = [
+      { kind: 'ferry', time: fmt(ferryDep),  fromTo: 'Pines → Sayville' },
+      { kind: 'bus',   time: fmt(sayArrRaw), fromTo: 'Ferry Terminal → Sayville Station' },
+      ...train.legs.map(l => ({
+        kind: 'train' as const,
+        time: fmt(l.dep),
+        fromTo: `${l.from} → ${l.to}`,
+        name: l.train,
+      })),
+    ];
     result.push({
       id: ++id,
       depart: fmt(ferryDep),      departRaw: ferryDep,
       arrive: fmt(train.arrive),  arriveRaw: train.arrive.slice(0, 5),
       layover, total, stoplight: sl(total), best: false,
-      legATime: fmt(ferryDep),
-      legASub: 'Pines Ferry',
-      legBTime: fmt(train.depart),
-      legBSub: train.legs[0]?.headsign || 'Babylon Br.',
+      segments,
     });
   }
   markBest(result);
@@ -359,6 +377,35 @@ function Ferry({ size = 60, wakes = false, style = {} }: { size?: number; wakes?
   );
 }
 
+function Bus({ size = 44, style = {} }: { size?: number; style?: CSSProperties }) {
+  return (
+    <svg width={size} height={size * 0.62} viewBox="0 0 100 62" style={style}>
+      <g filter="url(#wobble)">
+        {/* body */}
+        <rect x="8" y="18" width="80" height="28" rx="5" fill={C.mint} stroke={C.ink} strokeWidth="1.6" />
+        {/* roof line */}
+        <line x1="10" y1="24" x2="86" y2="24" stroke={C.ink} strokeWidth="1.2" />
+        {/* windows */}
+        <rect x="14" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
+        <rect x="30" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
+        <rect x="46" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
+        <rect x="62" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
+        {/* door */}
+        <rect x="78" y="26" width="6" height="18" fill={C.paper} stroke={C.ink} strokeWidth="1" />
+        {/* headlight */}
+        <circle cx="86" cy="42" r="1.5" fill={C.gold} stroke={C.ink} strokeWidth="0.8" />
+        {/* wheels */}
+        <circle cx="24" cy="50" r="6" fill={C.ink} />
+        <circle cx="24" cy="50" r="2" fill={C.paper} />
+        <circle cx="72" cy="50" r="6" fill={C.ink} />
+        <circle cx="72" cy="50" r="2" fill={C.paper} />
+        {/* ground */}
+        <line x1="0" y1="58" x2="100" y2="58" stroke={C.ink} strokeWidth="1.2" strokeDasharray="3 3" />
+      </g>
+    </svg>
+  );
+}
+
 function BeachSketch({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size * 0.78} viewBox="0 0 36 28">
@@ -487,14 +534,14 @@ function DirectionToggle({ value, onChange }: {
   );
 }
 
-function NextHero({ direction, itineraries, isToday }: {
-  direction: 'to-pines' | 'to-penn'; itineraries: Itinerary[]; isToday: boolean;
+function NextHero({ direction, itineraries, todayLabel }: {
+  direction: 'to-pines' | 'to-penn';
+  itineraries: Itinerary[];   // always today's, earliest-first
+  todayLabel: string;          // formatted, e.g. "Sat May 9, 2026"
 }) {
   const toPines = direction === 'to-pines';
   const nowM = toMin(nowNY());
-  const next = isToday
-    ? (itineraries.find(it => toMin(it.departRaw) > nowM) ?? itineraries[0])
-    : itineraries[0];
+  const next = itineraries.find(it => toMin(it.departRaw) > nowM) ?? itineraries[0];
 
   if (!next) {
     return (
@@ -509,12 +556,12 @@ function NextHero({ direction, itineraries, isToday }: {
   }
 
   const diffMin = toMin(next.departRaw) - nowM;
-  const showCountdown = isToday && diffMin > 0 && diffMin < 12 * 60;
+  const showCountdown = diffMin > 0 && diffMin < 12 * 60;
   const title = toPines ? 'NEXT TRAIN FROM PENN' : 'NEXT FERRY OFF THE PINES';
-  const sub = toPines
-    ? `${next.legASub} → ${next.legBTime} Ferry`
-    : `${next.depart} Ferry → ${next.legBTime} Train`;
-  const shareText = `${title.toLowerCase()}\n• ${next.depart}${showCountdown ? ` · in ${hmStr(diffMin)}` : ''}\n• ${sub}\n\ngopines.gay`;
+  const firstSeg = next.segments[0];
+  const lastSeg  = next.segments[next.segments.length - 1];
+  const sub = `${firstSeg.fromTo} → ${lastSeg.time} ${lastSeg.kind === 'ferry' ? 'ferry' : 'train'}`;
+  const shareText = buildShareText(direction, todayLabel, next.segments);
 
   return (
     <div style={{ margin: '2px 18px 12px', position: 'relative' }}>
@@ -549,23 +596,36 @@ function NextHero({ direction, itineraries, isToday }: {
   );
 }
 
-function ItineraryRow({ it, direction }: { it: Itinerary; direction: 'to-pines' | 'to-penn' }) {
+function SegmentSprite({ kind, animated }: { kind: Segment['kind']; animated: boolean }) {
+  if (kind === 'train') return <Train size={40} puff={animated} />;
+  if (kind === 'ferry') return <Ferry size={42} wakes={animated} />;
+  return <Bus size={42} />;
+}
+
+function segmentAnimation(kind: Segment['kind'], animated: boolean): string {
+  if (!animated) return 'none';
+  if (kind === 'train') return 'wf-chug 2.6s ease-in-out infinite';
+  if (kind === 'ferry') return 'wf-sail 4.2s ease-in-out infinite';
+  return 'none';
+}
+
+function buildShareText(direction: 'to-pines' | 'to-penn', dateLabel: string, segments: Segment[]): string {
+  const dirLabel = direction === 'to-pines' ? 'To the Pines' : 'To Penn';
+  const bullets = segments.map(s => {
+    const tail = s.name ? ` (${s.name})` : '';
+    return `• ${s.time} — ${s.fromTo}${tail}`;
+  }).join('\n');
+  return `${dateLabel}\n${dirLabel}\n\n${bullets}\n\ngopines.gay`;
+}
+
+function ItineraryRow({ it, direction, dateLabel }: {
+  it: Itinerary;
+  direction: 'to-pines' | 'to-penn';
+  dateLabel: string;
+}) {
   const { bg, label } = slInfo(it.stoplight);
-  const toPines = direction === 'to-pines';
   const anim = it.best;
-
-  const legA = {
-    sprite: toPines ? <Train size={40} puff={anim} /> : <Ferry size={42} wakes={anim} />,
-    animation: anim ? (toPines ? 'wf-chug 2.6s ease-in-out infinite' : 'wf-sail 4.2s ease-in-out infinite') : 'none',
-    time: it.legATime, sub: it.legASub,
-  };
-  const legB = {
-    sprite: toPines ? <Ferry size={42} wakes={anim} /> : <Train size={40} puff={anim} />,
-    animation: anim ? (toPines ? 'wf-sail 4.2s ease-in-out infinite' : 'wf-chug 2.6s ease-in-out infinite') : 'none',
-    time: it.legBTime, sub: it.legBSub,
-  };
-
-  const shareText = `${toPines ? 'to the Pines' : 'to Penn'} · ${it.depart}–${it.arrive} (${hmStr(it.total)})\n• ${it.legASub} ${it.legATime}\n• Sayville layover ${it.layover}m\n• ${it.legBSub} ${it.legBTime}\n\ngopines.gay`;
+  const shareText = buildShareText(direction, dateLabel, it.segments);
 
   return (
     <SketchBox color={C.ink} fill={C.paper} radius={18} sw={1.6} pad={0}
@@ -573,7 +633,7 @@ function ItineraryRow({ it, direction }: { it: Itinerary; direction: 'to-pines' 
       <div style={{ padding: '10px 14px' }}>
 
         {/* Header: times + stoplight + duration */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div style={{ fontFamily: F.marker, fontSize: 20, color: C.ink, letterSpacing: 0.4 }}>
             {it.depart}
             <span style={{ fontFamily: F.hand, fontSize: 16, margin: '0 6px', color: '#7a736a' }}>—</span>
@@ -586,36 +646,51 @@ function ItineraryRow({ it, direction }: { it: Itinerary; direction: 'to-pines' 
           </div>
         </div>
 
-        {/* Two-leg track */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-          <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: legA.animation }}>
-              {legA.sprite}
-            </div>
-            <div style={{ fontFamily: F.marker, fontSize: 14, color: C.ink, marginTop: 2 }}>{legA.time}</div>
-            <div style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', lineHeight: 1 }}>{legA.sub}</div>
-          </div>
+        {/* Vertical timeline */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {it.segments.map((seg, i) => {
+            const isLast = i === it.segments.length - 1;
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', position: 'relative' }}>
+                {/* Sprite column */}
+                <div style={{
+                  width: 52,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  flex: '0 0 auto',
+                }}>
+                  <div style={{
+                    height: 30,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    animation: segmentAnimation(seg.kind, anim),
+                  }}>
+                    <SegmentSprite kind={seg.kind} animated={anim} />
+                  </div>
+                  {!isLast && (
+                    <svg width="4" height="22" style={{ display: 'block', marginTop: 1 }}>
+                      <line x1="2" y1="0" x2="2" y2="22" stroke={C.ink} strokeWidth="1.2" strokeDasharray="3 3" filter="url(#wobble)" />
+                    </svg>
+                  )}
+                </div>
 
-          <div style={{ width: 56, paddingTop: 14, position: 'relative' }}>
-            <svg width="100%" height="4" style={{ display: 'block' }}>
-              <line x1="0" y1="2" x2="100%" y2="2" stroke={C.ink} strokeWidth="1.2" strokeDasharray="3 3" filter="url(#wobble)" />
-            </svg>
-            <div style={{
-              position: 'absolute', left: '50%', top: 6, transform: 'translateX(-50%)',
-              width: 8, height: 8, borderRadius: 999, background: C.gold, border: '1.2px solid ' + C.ink,
-            }} />
-            <div style={{ fontFamily: F.hand, fontSize: 11, color: '#7a736a', textAlign: 'center', marginTop: 4, lineHeight: 1.1 }}>
-              Sayville<br />{it.layover}m
-            </div>
-          </div>
-
-          <div style={{ flex: 1, textAlign: 'center' }}>
-            <div style={{ height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', animation: legB.animation }}>
-              {legB.sprite}
-            </div>
-            <div style={{ fontFamily: F.marker, fontSize: 14, color: C.ink, marginTop: 2 }}>{legB.time}</div>
-            <div style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', lineHeight: 1 }}>{legB.sub}</div>
-          </div>
+                {/* Text column */}
+                <div style={{ flex: 1, paddingTop: 6, paddingLeft: 4, paddingBottom: isLast ? 0 : 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontFamily: F.marker, fontSize: 16, color: C.ink, letterSpacing: 0.3 }}>{seg.time}</span>
+                    <span style={{ fontFamily: F.hand, fontSize: 14, color: C.ink, lineHeight: 1.15 }}>{seg.fromTo}</span>
+                  </div>
+                  {seg.name && (
+                    <div style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', marginTop: 1 }}>
+                      Train {seg.name}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Share */}
@@ -760,6 +835,21 @@ export function App() {
     itineraries = sort === 'latest' ? [...raw].reverse() : raw;
   }
 
+  // Hero card always uses today's data, earliest-first — independent of date/sort.
+  const todayDay = lirrData?.days?.find(d => d.date === today);
+  const todayItineraries: Itinerary[] = (todayDay && ferryTrips.length)
+    ? (direction === 'to-pines'
+        ? buildToPines(todayDay.outbound, ferryTrips)
+        : buildToPenn(todayDay.inbound, ferryTrips))
+    : [];
+
+  const fmtDateLabel = (dateStr: string) => {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  };
+  const selectedDateLabel = fmtDateLabel(dates[dateIdx].dateStr);
+  const todayLabel = fmtDateLabel(today);
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -782,7 +872,7 @@ export function App() {
       </div>
 
       {!loading && !err && (
-        <NextHero direction={direction} itineraries={itineraries} isToday={dateIdx === 0} />
+        <NextHero direction={direction} itineraries={todayItineraries} todayLabel={todayLabel} />
       )}
 
       {loading && (
@@ -815,7 +905,7 @@ export function App() {
               </div>
             ) : (
               itineraries.map(it => (
-                <ItineraryRow key={it.id} it={it} direction={direction} />
+                <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} />
               ))
             )}
           </div>
