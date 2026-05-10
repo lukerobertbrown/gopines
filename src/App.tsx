@@ -88,7 +88,7 @@ const SKINS: Skin[] = [
     label: 'DoorDash Grandmas',
     palette: GRANDMAS_PALETTE,
     copy: {
-      wordmark: 'SPONSORED BY DOORDASH GRANDMAS',
+      wordmark: 'SPONSORED BY DOORDASH GRANDMAS OF 512 FISHERMANS',
       heroToPines: 'YOUR DASHER ARRIVES IN',
       heroToPenn:  'RETURN DASH PICKUP IN',
       emptyToPines: "Kitchen's closed — check back tomorrow!",
@@ -106,7 +106,7 @@ const SKINS: Skin[] = [
       sponsorStrip: true,
       dashBadge: true,
       busRoofRack: true,
-      wordmarkSize: 18,
+      wordmarkSize: 16,
       wordmarkWrap: true,
     },
   },
@@ -1270,7 +1270,7 @@ function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
           background: C.sand,
           lineHeight: 1.2,
         }}>
-          🍔 brought to you by DoorDash Grandmas™
+          Not affiliated with DoorDash. First-amendment-protected satire.
         </div>
       )}
       <div style={{ padding: '16px 18px 10px', position: 'relative' }}>
@@ -1916,9 +1916,18 @@ export function App() {
     setHomeStationState(s);
   };
   const [qualities, setQualities] = useState<Stoplight[]>(['green']);
-  const [skinId, setSkinId]       = useState<string>(
-    () => localStorage.getItem('gopines-skin') ?? 'godash-may26',
-  );
+  const [skinId, setSkinId]       = useState<string>(() => {
+    // One-time migration: force every visitor to land on Grandmas the first
+    // time they hit a build that has this flag bumped. After the migration
+    // they can still toggle skins via the menu and that choice persists.
+    const FORCE_KEY = 'gopines-skin-force-v1';
+    if (!localStorage.getItem(FORCE_KEY)) {
+      localStorage.setItem('gopines-skin', 'grandmas');
+      localStorage.setItem(FORCE_KEY, '1');
+      return 'grandmas';
+    }
+    return localStorage.getItem('gopines-skin') ?? 'grandmas';
+  });
   const activeSkin = SKINS.find(s => s.id === skinId) ?? SKINS[0];
   const handleSkinSelect = (id: string) => {
     setSkinId(id);
