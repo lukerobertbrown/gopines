@@ -118,6 +118,17 @@ function hmStr(totalMin: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+// Hero countdown: "Xm" if under an hour, "Xh Ym" between 1–2h, "~Xh"
+// (rounded, with leading tilde) for anything 2h or longer.
+function countdownStr(totalMin: number): string {
+  if (totalMin < 60) return `${totalMin}m`;
+  if (totalMin < 120) {
+    const h = Math.floor(totalMin / 60), m = totalMin % 60;
+    return `${h}h ${m}m`;
+  }
+  return `~${Math.round(totalMin / 60)}h`;
+}
+
 function sl(min: number): Stoplight {
   return min <= 150 ? 'green' : min <= 180 ? 'amber' : 'red';
 }
@@ -589,42 +600,50 @@ function NextHero({ direction, itineraries, todayLabel }: {
   return (
     <div style={{ margin: '2px 18px 12px', position: 'relative' }}>
       <SketchBox color={C.ink} fill={toPines ? C.gold : C.ocean} radius={20} sw={1.8} pad={0}>
-        <div style={{ padding: '12px 14px', position: 'relative', overflow: 'hidden' }}>
-          <div style={{
-            position: 'absolute', right: 18, top: 14, opacity: 0.95,
-            animation: toPines ? 'wf-chug 2.6s ease-in-out infinite' : 'wf-sail 4.2s ease-in-out infinite',
-          }}>
-            {toPines ? <Train size={56} puff /> : <Ferry size={56} wakes />}
+        <div style={{ padding: '12px 14px 14px', position: 'relative', overflow: 'hidden' }}>
+
+          {/* Top row: title + countdown on the left, stoplight chip on the right */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ fontFamily: F.hand, fontSize: 15, color: toPines ? '#5b4a18' : '#e9f5fc', letterSpacing: 0.3, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
+              {title}
+              {showCountdown && (
+                <span style={{ fontFamily: F.marker, color: toPines ? C.ink : '#fff' }}>
+                  {' · in '}{countdownStr(diffMin)}
+                </span>
+              )}
+            </div>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '3px 9px', borderRadius: 999,
+              background: 'rgba(255,255,255,0.6)',
+              border: '1.2px solid ' + C.ink,
+              flex: '0 0 auto',
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: 999, background: slBg,
+                border: '1px solid ' + C.ink, display: 'inline-block',
+              }} />
+              <span style={{ fontFamily: F.marker, fontSize: 11, color: C.ink, letterSpacing: 0.4 }}>{slLabel}</span>
+              <span style={{ fontFamily: F.hand, fontSize: 11, color: '#5a544c' }}>· {hmStr(next.total)}</span>
+            </div>
           </div>
 
-          <div style={{ fontFamily: F.hand, fontSize: 15, color: toPines ? '#5b4a18' : '#e9f5fc', letterSpacing: 0.3 }}>
-            {title}
-          </div>
-          <div style={{ fontFamily: F.disco, fontSize: 34, letterSpacing: 1.5, color: C.ink, lineHeight: 1, marginTop: 2 }}>
+          {/* Big disco time */}
+          <div style={{ fontFamily: F.disco, fontSize: 34, letterSpacing: 1.5, color: C.ink, lineHeight: 1, marginTop: 6 }}>
             {next.depart.toUpperCase()}
           </div>
-          {showCountdown && (
-            <div style={{ fontFamily: F.marker, fontSize: 17, marginTop: 4, color: toPines ? C.ink : '#fff', letterSpacing: 0.3 }}>
-              in <span style={{ fontSize: 20 }}>{hmStr(diffMin)}</span>
-            </div>
-          )}
-          <div style={{ fontFamily: F.hand, fontSize: 14, marginTop: 4, color: toPines ? '#5b4a18' : '#e9f5fc', lineHeight: 1.25, maxWidth: '70%' }}>
+
+          {/* Subtitle (route summary) */}
+          <div style={{ fontFamily: F.hand, fontSize: 14, marginTop: 4, color: toPines ? '#5b4a18' : '#e9f5fc', lineHeight: 1.25, maxWidth: 'calc(100% - 80px)' }}>
             {sub}
           </div>
 
-          {/* Stoplight + total time chip */}
+          {/* Animated sprite — pushed below the rating chip with breathing room */}
           <div style={{
-            marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '3px 10px', borderRadius: 999,
-            background: 'rgba(255,255,255,0.55)',
-            border: '1.2px solid ' + C.ink,
+            position: 'absolute', right: 14, bottom: 36, opacity: 0.95,
+            animation: toPines ? 'wf-chug 2.6s ease-in-out infinite' : 'wf-sail 4.2s ease-in-out infinite',
           }}>
-            <span style={{
-              width: 9, height: 9, borderRadius: 999, background: slBg,
-              border: '1px solid ' + C.ink, display: 'inline-block',
-            }} />
-            <span style={{ fontFamily: F.marker, fontSize: 12, color: C.ink, letterSpacing: 0.4 }}>{slLabel}</span>
-            <span style={{ fontFamily: F.hand, fontSize: 12, color: '#5a544c' }}>· {hmStr(next.total)}</span>
+            {toPines ? <Train size={52} puff /> : <Ferry size={52} wakes />}
           </div>
 
           <ShareButton tone={toPines ? 'light' : 'dark'} text={shareText}
@@ -641,11 +660,15 @@ function SegmentSprite({ kind, animated }: { kind: Segment['kind']; animated: bo
   return <Bus size={42} />;
 }
 
-function segmentAnimation(kind: Segment['kind'], animated: boolean): string {
+// Disco-pick segments share a single keyframe (wf-bob) on a single duration so
+// adjacent sprites can pass each other in opposite phase. Even-index sprites
+// run at delay 0; odd-index sprites run at delay -1.5s (half the 3s cycle), so
+// when sprite N is at its leftmost, sprite N+1 is at its rightmost.
+const SEG_ANIM_DURATION = 3;
+function segmentAnimation(animated: boolean, index: number): string {
   if (!animated) return 'none';
-  if (kind === 'train') return 'wf-chug 2.6s ease-in-out infinite';
-  if (kind === 'ferry') return 'wf-sail 4.2s ease-in-out infinite';
-  return 'none';
+  const delay = index % 2 === 0 ? '0s' : `-${SEG_ANIM_DURATION / 2}s`;
+  return `wf-bob ${SEG_ANIM_DURATION}s ease-in-out ${delay} infinite`;
 }
 
 function buildShareText(direction: 'to-pines' | 'to-penn', dateLabel: string, segments: Segment[]): string {
@@ -668,8 +691,8 @@ function ItineraryRow({ it, direction, dateLabel }: {
 
   return (
     <SketchBox color={C.ink} fill={C.paper} radius={18} sw={1.6} pad={0}
-      style={{ margin: '0 18px 10px', position: 'relative' }}>
-      <div style={{ padding: '10px 14px' }}>
+      style={{ margin: '0 18px 12px', position: 'relative' }}>
+      <div style={{ padding: '10px 14px 14px' }}>
 
         {/* Header: times + stoplight + duration */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -698,13 +721,14 @@ function ItineraryRow({ it, direction, dateLabel }: {
                   flexDirection: 'column',
                   alignItems: 'center',
                   flex: '0 0 auto',
+                  overflow: 'hidden',
                 }}>
                   <div style={{
                     height: 30,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    animation: segmentAnimation(seg.kind, anim),
+                    animation: segmentAnimation(anim, i),
                   }}>
                     <SegmentSprite kind={seg.kind} animated={anim} />
                   </div>
@@ -788,27 +812,57 @@ function DatePickerStrip({ value, onChange, dates }: {
   );
 }
 
-function Legend({ sort, onSort }: { sort: 'earliest' | 'latest'; onSort: (s: 'earliest' | 'latest') => void }) {
-  const dot = (color: string, lbl: string) => (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-      <span style={{ width: 9, height: 9, borderRadius: 999, background: color, border: '1.1px solid ' + C.ink, display: 'inline-block' }} />
-      <span style={{ fontFamily: F.hand, fontSize: 12, color: '#5a544c' }}>{lbl}</span>
-    </span>
-  );
+function FilterBar({
+  qualities, onToggleQ,
+  sort, onSort,
+}: {
+  qualities: Stoplight[];
+  onToggleQ: (s: Stoplight) => void;
+  sort: 'earliest' | 'latest';
+  onSort: (s: 'earliest' | 'latest') => void;
+}) {
+  const QUALITY_LABEL: Record<Stoplight, string> = { green: 'breeze', amber: 'doable', red: 'avoid' };
+  const QUALITY_BG: Record<Stoplight, string> = { green: C.green, amber: C.amber, red: C.red };
+
+  const segShell: CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 2,
+    border: '1.2px solid ' + C.ink, borderRadius: 999,
+    background: C.paper, padding: 2,
+  };
+  const segBtn = (on: boolean): CSSProperties => ({
+    border: 'none',
+    background: on ? C.ink : 'transparent',
+    color: on ? C.paper : '#5a544c',
+    fontFamily: F.marker, fontSize: 12, letterSpacing: 0.5,
+    padding: '3px 9px', borderRadius: 999, cursor: 'pointer',
+  });
+
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', margin: '2px 18px 8px' }}>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {dot(C.green, 'breeze')}{dot(C.amber, 'doable')}{dot(C.red, 'avoid')}
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', margin: '2px 18px 8px', flexWrap: 'wrap' }}>
+      <div style={segShell}>
+        {(['green', 'amber', 'red'] as const).map(k => {
+          const on = qualities.includes(k);
+          return (
+            <button key={k} onClick={() => onToggleQ(k)} style={{
+              ...segBtn(on),
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: 999,
+                background: QUALITY_BG[k],
+                border: '1px solid ' + (on ? C.paper : C.ink),
+                display: 'inline-block',
+              }} />
+              {QUALITY_LABEL[k]}
+            </button>
+          );
+        })}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2, border: '1.2px solid ' + C.ink, borderRadius: 999, background: C.paper, padding: 2 }}>
-        <span style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', padding: '0 4px 0 8px' }}>sort</span>
+      <div style={segShell}>
         {(['earliest', 'latest'] as const).map(k => (
-          <button key={k} onClick={() => onSort(k)} style={{
-            border: 'none', background: sort === k ? C.ink : 'transparent',
-            color: sort === k ? C.paper : '#5a544c',
-            fontFamily: F.marker, fontSize: 12, letterSpacing: 0.5,
-            padding: '3px 9px', borderRadius: 999, cursor: 'pointer',
-          }}>{k.charAt(0).toUpperCase() + k.slice(1)}</button>
+          <button key={k} onClick={() => onSort(k)} style={segBtn(sort === k)}>
+            {k.charAt(0).toUpperCase() + k.slice(1)}
+          </button>
         ))}
       </div>
     </div>
@@ -979,6 +1033,18 @@ function AboutView() {
           Times come straight from the MTA's GTFS feed and a daily scrape of the Sayville
           Ferry schedule. No accounts, no ads.
         </p>
+        <p>
+          If you appreciate this free resource and want to give back, please consider{' '}
+          <a
+            href="https://www.fippoa.org/what-we-do/#donate-today"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: C.deep, textDecoration: 'underline' }}
+          >
+            donating to FIPPOA
+          </a>
+          {' '}to support the work that keeps our community humming.
+        </p>
         <p style={{ marginBottom: 0 }}>
           See you at tea ☀️🌊
         </p>
@@ -1077,7 +1143,9 @@ export function App() {
   const [err, setErr]             = useState<string | null>(null);
   const [ferryMock, setFerryMock] = useState(false);
   const [panel, setPanel]         = useState<PanelView>('closed');
-  const [showAvoid, setShowAvoid] = useState(false);
+  const [qualities, setQualities] = useState<Stoplight[]>(['green']);
+  const toggleQuality = (s: Stoplight) =>
+    setQualities(qs => qs.includes(s) ? qs.filter(x => x !== s) : [...qs, s]);
 
   useEffect(() => {
     setLoading(true);
@@ -1148,7 +1216,7 @@ export function App() {
       <DiscoHeader onMenuOpen={() => setPanel('menu')} />
 
       <div style={{ marginBottom: 8 }}>
-        <DirectionToggle value={direction} onChange={v => { setDirection(v); setSort('earliest'); setShowAvoid(false); }} />
+        <DirectionToggle value={direction} onChange={v => { setDirection(v); setSort('earliest'); }} />
       </div>
 
       {!loading && !err && (
@@ -1171,7 +1239,7 @@ export function App() {
         </div>
       )}
 
-      <DatePickerStrip value={dateIdx} onChange={i => { setDateIdx(i); setShowAvoid(false); }} dates={dates} />
+      <DatePickerStrip value={dateIdx} onChange={setDateIdx} dates={dates} />
 
       {ferryMock && !loading && (
         <div style={{ margin: '0 18px 8px', fontFamily: F.hand, fontSize: 12, color: '#9b958c' }}>
@@ -1180,52 +1248,28 @@ export function App() {
       )}
 
       {!loading && (() => {
-        const visible = itineraries.filter(i => i.stoplight !== 'red');
-        const avoids  = itineraries.filter(i => i.stoplight === 'red');
+        const filtered = itineraries.filter(i => qualities.includes(i.stoplight));
         return (
           <>
-            <Legend sort={sort} onSort={setSort} />
+            <FilterBar
+              qualities={qualities}
+              onToggleQ={toggleQuality}
+              sort={sort}
+              onSort={setSort}
+            />
             <div>
-              {visible.length === 0 && avoids.length === 0 && !err ? (
+              {filtered.length === 0 && !err ? (
                 <div style={{ margin: '12px 18px', fontFamily: F.hand, color: '#7a736a', fontSize: 15 }}>
-                  No trips found for this day.
-                </div>
-              ) : visible.length === 0 && avoids.length > 0 && !showAvoid ? (
-                <div style={{ margin: '12px 18px', fontFamily: F.hand, color: '#7a736a', fontSize: 15 }}>
-                  No "breeze" or "doable" options today — tap below to see suboptimal trips.
+                  {qualities.length === 0
+                    ? 'No quality filters selected — tap a chip above to see trips.'
+                    : 'No trips match the selected quality filters.'}
                 </div>
               ) : (
-                visible.map(it => (
+                filtered.map(it => (
                   <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} />
                 ))
               )}
             </div>
-
-            {avoids.length > 0 && (
-              <div style={{ margin: '12px 18px 0' }}>
-                <button
-                  onClick={() => setShowAvoid(s => !s)}
-                  style={{
-                    width: '100%',
-                    border: '1.4px dashed ' + C.ink,
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    padding: '10px 12px',
-                    borderRadius: 14,
-                    fontFamily: F.marker, fontSize: 14, color: '#5a544c',
-                    letterSpacing: 0.4,
-                  }}
-                >
-                  {showAvoid
-                    ? `▲ hide suboptimal trips (${avoids.length})`
-                    : `▼ show suboptimal trips (${avoids.length})`}
-                </button>
-              </div>
-            )}
-
-            {showAvoid && avoids.map(it => (
-              <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} />
-            ))}
           </>
         );
       })()}
