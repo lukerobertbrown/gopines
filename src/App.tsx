@@ -1364,13 +1364,16 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
           const half = Math.ceil(d.trips.length / 2);
           const left = d.trips.slice(0, half);
           const right = d.trips.slice(half);
-          const renderItem = (t: FerryTrip) => {
+          const renderItem = (t: FerryTrip, idx: number, offset: number) => {
             const eff = effectiveLabel(t);
             return (
               <li key={t.departureTime + (t.extraStops ? 'x' : '') + (eff || '')} style={{
                 display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 6,
                 padding: '3px 0',
               }}>
+                <span style={{ fontFamily: F.marker, fontSize: 14, minWidth: 18, color: C.ink, opacity: 0.5 }}>
+                  {offset + idx + 1}.
+                </span>
                 <span style={{ letterSpacing: 0.3 }}>{fmt(t.departureTime)}</span>
                 {t.extraStops && (
                   <span
@@ -1398,6 +1401,17 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
               </li>
             );
           };
+          const dirLabel = tab === 'to-pines' ? 'To Pines' : 'To Sayville';
+          const onFerryBug = (e: MouseEvent) => {
+            e.stopPropagation();
+            const timeLines = d.trips.map(t => `- ${fmt(t.departureTime)}${t.extraStops ? ' ▲' : ''}`).join('\n');
+            const sourceLine = ferryData?.sourcePageUrl ? `\n**Source:** ${ferryData.sourcePageUrl}` : '';
+            const body = `**Direction:** ${dirLabel}\n**Day:** ${d.label}\n**Schedule:** ${title}${dateRange ? `\n**Effective:** ${dateRange}` : ''}${sourceLine}\n\n**Times shown:**\n${timeLines}`;
+            const issueTitle = `[Ferry Error] ${dirLabel} – ${d.label}`;
+            const url = `https://github.com/lukerobertbrown/gopines/issues/new?template=ferry_schedule_error.md&title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(body)}`;
+            window.open(url, '_blank', 'noopener,noreferrer');
+            track('report_ferry_error', { direction: tab, day: d.label });
+          };
           return (
             <SketchBox key={d.idx} color={C.ink} fill={C.paper} radius={14} sw={1.6} pad={0}
               style={{ marginBottom: 14 }}>
@@ -1415,20 +1429,42 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: 14, fontFamily: F.marker, fontSize: 16, color: C.ink }}>
-                    <ol start={1} style={{
-                      flex: 1, margin: 0, paddingInlineStart: 22,
-                    }}>
-                      {left.map(renderItem)}
+                    <ol style={{ flex: 1, margin: 0, paddingInlineStart: 0, listStyle: 'none' }}>
+                      {left.map((t, i) => renderItem(t, i, 0))}
                     </ol>
                     {right.length > 0 && (
-                      <ol start={half + 1} style={{
-                        flex: 1, margin: 0, paddingInlineStart: 22,
-                      }}>
-                        {right.map(renderItem)}
+                      <ol style={{ flex: 1, margin: 0, paddingInlineStart: 0, listStyle: 'none' }}>
+                        {right.map((t, i) => renderItem(t, i, half))}
                       </ol>
                     )}
                   </div>
                 )}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                  <button onClick={onFerryBug} aria-label="report ferry schedule error" style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    border: '1.2px solid ' + C.ink,
+                    background: 'rgba(255,255,255,0.7)', color: C.ink, cursor: 'pointer',
+                    borderRadius: 999, padding: '3px 9px',
+                    fontFamily: F.marker, fontSize: 11, letterSpacing: 0.6,
+                    boxShadow: '1px 1.5px 0 ' + C.ink,
+                  }}>
+                    <svg width="11" height="11" viewBox="0 0 14 14">
+                      <g stroke={C.ink} strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" filter="url(#wobble)">
+                        <ellipse cx="7" cy="8.5" rx="3" ry="3.8" />
+                        <circle cx="7" cy="3.8" r="1.6" />
+                        <line x1="4" y1="7" x2="1.5" y2="5.5" />
+                        <line x1="4" y1="8.5" x2="1.5" y2="8.5" />
+                        <line x1="4" y1="10" x2="1.5" y2="11.5" />
+                        <line x1="10" y1="7" x2="12.5" y2="5.5" />
+                        <line x1="10" y1="8.5" x2="12.5" y2="8.5" />
+                        <line x1="10" y1="10" x2="12.5" y2="11.5" />
+                        <line x1="6" y1="2.4" x2="4.5" y2="1" />
+                        <line x1="8" y1="2.4" x2="9.5" y2="1" />
+                      </g>
+                    </svg>
+                    BUG
+                  </button>
+                </div>
               </div>
             </SketchBox>
           );
