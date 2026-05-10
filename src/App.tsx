@@ -55,7 +55,14 @@ type FerryTrip = {
   direction: 'sayville_to_pines' | 'pines_to_sayville' | 'unknown';
 };
 
-type FerryResp = { trips: FerryTrip[]; error?: string };
+type FerryResp = {
+  trips: FerryTrip[];
+  effectiveLabel?: string;
+  sourcePageUrl?: string;
+  pdfUrl?: string | null;
+  updatedAt?: string;
+  error?: string;
+};
 
 // ─── UI types ─────────────────────────────────────────────────────────────────
 type Stoplight = 'green' | 'amber' | 'red';
@@ -562,13 +569,15 @@ function NextHero({ direction, itineraries, todayLabel }: {
   const lastSeg  = next.segments[next.segments.length - 1];
   const sub = `${firstSeg.fromTo} → ${lastSeg.time} ${lastSeg.kind === 'ferry' ? 'ferry' : 'train'}`;
   const shareText = buildShareText(direction, todayLabel, next.segments);
+  const slBg    = next.stoplight === 'green' ? C.green : C.amber;
+  const slLabel = next.stoplight === 'green' ? 'breeze' : 'doable';
 
   return (
     <div style={{ margin: '2px 18px 12px', position: 'relative' }}>
       <SketchBox color={C.ink} fill={toPines ? C.gold : C.ocean} radius={20} sw={1.8} pad={0}>
         <div style={{ padding: '12px 14px', position: 'relative', overflow: 'hidden' }}>
           <div style={{
-            position: 'absolute', right: 8, top: 14, opacity: 0.95,
+            position: 'absolute', right: 18, top: 14, opacity: 0.95,
             animation: toPines ? 'wf-chug 2.6s ease-in-out infinite' : 'wf-sail 4.2s ease-in-out infinite',
           }}>
             {toPines ? <Train size={56} puff /> : <Ferry size={56} wakes />}
@@ -588,6 +597,22 @@ function NextHero({ direction, itineraries, todayLabel }: {
           <div style={{ fontFamily: F.hand, fontSize: 14, marginTop: 4, color: toPines ? '#5b4a18' : '#e9f5fc', lineHeight: 1.25, maxWidth: '70%' }}>
             {sub}
           </div>
+
+          {/* Stoplight + total time chip */}
+          <div style={{
+            marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '3px 10px', borderRadius: 999,
+            background: 'rgba(255,255,255,0.55)',
+            border: '1.2px solid ' + C.ink,
+          }}>
+            <span style={{
+              width: 9, height: 9, borderRadius: 999, background: slBg,
+              border: '1px solid ' + C.ink, display: 'inline-block',
+            }} />
+            <span style={{ fontFamily: F.marker, fontSize: 12, color: C.ink, letterSpacing: 0.4 }}>{slLabel}</span>
+            <span style={{ fontFamily: F.hand, fontSize: 12, color: '#5a544c' }}>· {hmStr(next.total)}</span>
+          </div>
+
           <ShareButton tone={toPines ? 'light' : 'dark'} text={shareText}
             style={{ position: 'absolute', right: 10, bottom: 10 }} />
         </div>
@@ -776,15 +801,223 @@ function Legend({ sort, onSort }: { sort: 'earliest' | 'latest'; onSort: (s: 'ea
   );
 }
 
-function DiscoHeader() {
+function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
   return (
     <div style={{ padding: '6px 18px 8px', position: 'relative' }}>
       <div style={{ fontFamily: F.disco, fontSize: 28, letterSpacing: 1.5, color: C.ink, lineHeight: 1 }}>
         GOPINES.GAY
       </div>
-      <div style={{ position: 'absolute', top: 0, right: 14 }}><Sun size={42} /></div>
-      <div style={{ position: 'absolute', top: 14, right: 64 }}><Seagull size={18} /></div>
-      <div style={{ position: 'absolute', top: 30, right: 78 }}><Seagull size={12} /></div>
+      <button
+        onClick={onMenuOpen}
+        aria-label="open menu"
+        style={{
+          position: 'absolute', top: 0, right: 14,
+          border: 'none', background: 'transparent', padding: 0,
+          cursor: 'pointer', borderRadius: '50%',
+        }}
+      >
+        <Sun size={42} />
+      </button>
+      <div style={{ position: 'absolute', top: 14, right: 64, pointerEvents: 'none' }}><Seagull size={18} /></div>
+      <div style={{ position: 'absolute', top: 30, right: 78, pointerEvents: 'none' }}><Seagull size={12} /></div>
+    </div>
+  );
+}
+
+// ─── Menu / overlay panel ─────────────────────────────────────────────────────
+type PanelView = 'closed' | 'menu' | 'ferry' | 'about';
+
+function MenuLink({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{
+      display: 'block', width: '100%', textAlign: 'left',
+      border: 'none', background: 'transparent', cursor: 'pointer',
+      padding: '14px 0', fontFamily: F.marker, fontSize: 22, color: C.ink,
+      letterSpacing: 0.5, borderBottom: '1.5px dashed ' + C.ink,
+    }}>
+      {label} <span style={{ float: 'right', fontFamily: F.hand, fontSize: 18 }}>›</span>
+    </button>
+  );
+}
+
+function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | null; ferryMock: boolean }) {
+  const [tab, setTab] = useState<'to-pines' | 'to-penn'>('to-pines');
+  const trips = ferryData?.trips ?? [];
+  const filtered = trips
+    .filter(t => tab === 'to-pines'
+      ? (t.direction === 'sayville_to_pines' || t.direction === 'unknown')
+      : (t.direction === 'pines_to_sayville' || (t.direction === 'unknown' && !trips.some(x => x.direction === 'pines_to_sayville'))))
+    .map(t => t.departureTime.slice(0, 5))
+    .sort();
+
+  return (
+    <div>
+      <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink, marginBottom: 6 }}>
+        FERRY SCHEDULE
+      </div>
+      {ferryData?.effectiveLabel && (
+        <div style={{ fontFamily: F.hand, fontSize: 14, color: '#7a736a', marginBottom: 10 }}>
+          {ferryData.effectiveLabel}
+        </div>
+      )}
+      {ferryMock && (
+        <div style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', marginBottom: 10 }}>
+          ⚠ estimated times — live schedule loads daily at 6am ET
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{
+        display: 'flex', gap: 0, marginBottom: 12,
+        border: '1.6px solid ' + C.ink, borderRadius: 999, padding: 3,
+        background: C.paper,
+      }}>
+        {(['to-pines', 'to-penn'] as const).map(k => {
+          const on = tab === k;
+          return (
+            <button key={k} onClick={() => setTab(k)} style={{
+              flex: 1, cursor: 'pointer',
+              background: on ? (k === 'to-pines' ? C.coral : C.deep) : 'transparent',
+              color: on ? '#fff' : '#5a544c',
+              fontFamily: F.marker, fontSize: 14, letterSpacing: 0.4,
+              padding: '8px 6px', borderRadius: 999,
+              boxShadow: on ? '1.5px 2px 0 ' + C.ink : 'none',
+              border: on ? '1.4px solid ' + C.ink : '1.4px solid transparent',
+            }}>
+              {k === 'to-pines' ? '→ Pines' : '→ Sayville'}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Time list */}
+      {filtered.length === 0 ? (
+        <div style={{ fontFamily: F.hand, fontSize: 14, color: '#7a736a' }}>
+          No ferry times found for this direction.
+        </div>
+      ) : (
+        <SketchBox color={C.ink} fill={C.paper} radius={14} sw={1.6} pad={14}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 8px',
+          }}>
+            {filtered.map(t => (
+              <div key={t} style={{
+                fontFamily: F.marker, fontSize: 18, letterSpacing: 0.4,
+                color: C.ink, textAlign: 'center',
+              }}>
+                {fmt(t)}
+              </div>
+            ))}
+          </div>
+        </SketchBox>
+      )}
+
+      {ferryData?.sourcePageUrl && (
+        <div style={{ marginTop: 18, fontFamily: F.hand, fontSize: 13, color: '#5a544c', textAlign: 'center' }}>
+          Source: <a href={ferryData.sourcePageUrl} target="_blank" rel="noreferrer" style={{ color: C.deep, textDecoration: 'underline' }}>
+            sayvilleferry.com
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AboutView() {
+  return (
+    <div>
+      <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink, marginBottom: 14 }}>
+        ABOUT
+      </div>
+      <div style={{ fontFamily: F.hand, fontSize: 17, color: C.ink, lineHeight: 1.45 }}>
+        <p style={{ marginTop: 0 }}>
+          gopines.gay is a side project — a weekend toy that pairs the LIRR open feed with
+          the Sayville Ferry schedule so getting to Fire Island Pines (or back) is one tap easier.
+        </p>
+        <p>
+          Times come straight from the MTA's GTFS feed and a daily scrape of the Sayville
+          Ferry schedule. No accounts, no tracking, no ads.
+        </p>
+        <p style={{ marginBottom: 0 }}>
+          Built with love (and not much sleep) ☀️🌊
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MenuPanel({
+  view, setView, ferryData, ferryMock,
+}: {
+  view: PanelView;
+  setView: (v: PanelView) => void;
+  ferryData: FerryResp | null;
+  ferryMock: boolean;
+}) {
+  const open = view !== 'closed';
+
+  return (
+    <div
+      aria-hidden={!open}
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 50, pointerEvents: open ? 'auto' : 'none',
+      }}
+    >
+      {/* Backdrop */}
+      <div
+        onClick={() => setView('closed')}
+        style={{
+          position: 'absolute', inset: 0,
+          background: 'rgba(42,38,34,0.32)',
+          opacity: open ? 1 : 0,
+          transition: 'opacity .25s ease',
+        }}
+      />
+      {/* Sliding sheet */}
+      <div style={{
+        position: 'absolute', top: 0, left: '50%', transform: `translateX(-50%) translateY(${open ? '0' : '-105%'})`,
+        width: '100%', maxWidth: 430,
+        background: `linear-gradient(180deg, ${C.sand} 0%, ${C.paper} 100%)`,
+        borderBottom: '2px solid ' + C.ink,
+        boxShadow: '0 6px 0 ' + C.ink,
+        transition: 'transform .3s ease',
+        maxHeight: '94vh', overflowY: 'auto',
+        padding: '14px 18px 24px',
+      }}>
+        {/* Top bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          {view === 'menu' ? (
+            <div style={{ fontFamily: F.disco, fontSize: 22, letterSpacing: 1.5, color: C.ink }}>
+              MENU
+            </div>
+          ) : (
+            <button onClick={() => setView('menu')} style={{
+              border: 'none', background: 'transparent', cursor: 'pointer',
+              fontFamily: F.marker, fontSize: 16, color: C.ink, padding: '4px 0',
+            }}>
+              ‹ menu
+            </button>
+          )}
+          <button onClick={() => setView('closed')} aria-label="close menu" style={{
+            border: '1.4px solid ' + C.ink, background: C.paper, cursor: 'pointer',
+            width: 34, height: 34, borderRadius: 999,
+            fontFamily: F.marker, fontSize: 18, color: C.ink,
+            boxShadow: '1.5px 2px 0 ' + C.ink,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            paddingBottom: 2,
+          }}>×</button>
+        </div>
+
+        {view === 'menu' && (
+          <div>
+            <MenuLink label="Ferry Schedule" onClick={() => setView('ferry')} />
+            <MenuLink label="About"          onClick={() => setView('about')} />
+          </div>
+        )}
+        {view === 'ferry' && <FerryScheduleView ferryData={ferryData} ferryMock={ferryMock} />}
+        {view === 'about' && <AboutView />}
+      </div>
     </div>
   );
 }
@@ -802,6 +1035,8 @@ export function App() {
   const [loading, setLoading]     = useState(true);
   const [err, setErr]             = useState<string | null>(null);
   const [ferryMock, setFerryMock] = useState(false);
+  const [panel, setPanel]         = useState<PanelView>('closed');
+  const [showAvoid, setShowAvoid] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -865,14 +1100,18 @@ export function App() {
         <Seagull size={14} />
       </div>
 
-      <DiscoHeader />
+      <DiscoHeader onMenuOpen={() => setPanel('menu')} />
 
       <div style={{ marginBottom: 8 }}>
-        <DirectionToggle value={direction} onChange={v => { setDirection(v); setSort('earliest'); }} />
+        <DirectionToggle value={direction} onChange={v => { setDirection(v); setSort('earliest'); setShowAvoid(false); }} />
       </div>
 
       {!loading && !err && (
-        <NextHero direction={direction} itineraries={todayItineraries} todayLabel={todayLabel} />
+        <NextHero
+          direction={direction}
+          itineraries={todayItineraries.filter(i => i.stoplight !== 'red')}
+          todayLabel={todayLabel}
+        />
       )}
 
       {loading && (
@@ -887,7 +1126,7 @@ export function App() {
         </div>
       )}
 
-      <DatePickerStrip value={dateIdx} onChange={setDateIdx} dates={dates} />
+      <DatePickerStrip value={dateIdx} onChange={i => { setDateIdx(i); setShowAvoid(false); }} dates={dates} />
 
       {ferryMock && !loading && (
         <div style={{ margin: '0 18px 8px', fontFamily: F.hand, fontSize: 12, color: '#9b958c' }}>
@@ -895,22 +1134,56 @@ export function App() {
         </div>
       )}
 
-      {!loading && (
-        <>
-          <Legend sort={sort} onSort={setSort} />
-          <div>
-            {itineraries.length === 0 && !err ? (
-              <div style={{ margin: '12px 18px', fontFamily: F.hand, color: '#7a736a', fontSize: 15 }}>
-                No trips found for this day.
+      {!loading && (() => {
+        const visible = itineraries.filter(i => i.stoplight !== 'red');
+        const avoids  = itineraries.filter(i => i.stoplight === 'red');
+        return (
+          <>
+            <Legend sort={sort} onSort={setSort} />
+            <div>
+              {visible.length === 0 && avoids.length === 0 && !err ? (
+                <div style={{ margin: '12px 18px', fontFamily: F.hand, color: '#7a736a', fontSize: 15 }}>
+                  No trips found for this day.
+                </div>
+              ) : visible.length === 0 && avoids.length > 0 && !showAvoid ? (
+                <div style={{ margin: '12px 18px', fontFamily: F.hand, color: '#7a736a', fontSize: 15 }}>
+                  No "breeze" or "doable" options today — tap below to see suboptimal trips.
+                </div>
+              ) : (
+                visible.map(it => (
+                  <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} />
+                ))
+              )}
+            </div>
+
+            {avoids.length > 0 && (
+              <div style={{ margin: '12px 18px 0' }}>
+                <button
+                  onClick={() => setShowAvoid(s => !s)}
+                  style={{
+                    width: '100%',
+                    border: '1.4px dashed ' + C.ink,
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    padding: '10px 12px',
+                    borderRadius: 14,
+                    fontFamily: F.marker, fontSize: 14, color: '#5a544c',
+                    letterSpacing: 0.4,
+                  }}
+                >
+                  {showAvoid
+                    ? `▲ hide suboptimal trips (${avoids.length})`
+                    : `▼ show suboptimal trips (${avoids.length})`}
+                </button>
               </div>
-            ) : (
-              itineraries.map(it => (
-                <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} />
-              ))
             )}
-          </div>
-        </>
-      )}
+
+            {showAvoid && avoids.map(it => (
+              <ItineraryRow key={it.id} it={it} direction={direction} dateLabel={selectedDateLabel} />
+            ))}
+          </>
+        );
+      })()}
 
       <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0 10px' }}>
         <Wave width={120} />
@@ -918,6 +1191,8 @@ export function App() {
       <div style={{ textAlign: 'center', fontFamily: F.hand, fontSize: 13, color: '#9b958c', paddingBottom: 24 }}>
         ferry data scraped daily · LIRR via open feed
       </div>
+
+      <MenuPanel view={panel} setView={setPanel} ferryData={ferryData} ferryMock={ferryMock} />
     </div>
   );
 }
