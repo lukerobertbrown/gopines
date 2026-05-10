@@ -1169,12 +1169,13 @@ function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
 // ─── Menu / overlay panel ─────────────────────────────────────────────────────
 type PanelView = 'closed' | 'menu' | 'ferry' | 'about' | 'home-station' | 'skins';
 
-type HomeStation = 'penn' | 'grand-central' | 'atlantic';
+type HomeStation = 'penn' | 'grand-central' | 'atlantic' | 'woodside';
 
 const STATION_LABELS: Record<HomeStation, string> = {
   penn:            'Penn Station',
   'grand-central': 'Grand Central Madison',
   atlantic:        'Atlantic Terminal',
+  woodside:        'Woodside',
 };
 
 const HOME_STATION_KEY = 'gopines_home_station';
@@ -1537,7 +1538,7 @@ const STATIONS: { id: HomeStation | string; label: string; available: boolean }[
   { id: 'penn',          label: 'Penn Station',        available: true  },
   { id: 'grand-central', label: 'Grand Central Madison', available: true  },
   { id: 'atlantic',      label: 'Atlantic Terminal',   available: true  },
-  { id: 'woodside',      label: 'Woodside',            available: false },
+  { id: 'woodside',      label: 'Woodside',            available: true  },
 ];
 
 function HomeStationView({

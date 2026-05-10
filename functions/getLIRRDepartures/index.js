@@ -60,6 +60,7 @@ const STATION_DOC_NAMES = {
   penn:            "penn_sayville_schedule",
   "grand-central": "grand_central_sayville_schedule",
   atlantic:        "atlantic_terminal_sayville_schedule",
+  woodside:        "woodside_sayville_schedule",
 };
 /** Bump when buildSchedulePayload's output shape changes meaningfully. */
 const CURRENT_LIRR_VERSION = 1;
