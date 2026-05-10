@@ -929,6 +929,17 @@ function shortenWeekdays(s: string | null | undefined): string {
     .replace(/Sunday/g, 'Sun');
 }
 
+// Display order for the per-day cards: Mon → Sat first, then Sun at the end.
+const DAY_CARDS: { idx: number; label: string }[] = [
+  { idx: 1, label: 'Monday' },
+  { idx: 2, label: 'Tuesday' },
+  { idx: 3, label: 'Wednesday' },
+  { idx: 4, label: 'Thursday' },
+  { idx: 5, label: 'Friday' },
+  { idx: 6, label: 'Saturday' },
+  { idx: 0, label: 'Sunday' },
+];
+
 function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | null; ferryMock: boolean }) {
   const [tab, setTab] = useState<'to-pines' | 'to-penn'>('to-pines');
   const trips = ferryData?.trips ?? [];
@@ -937,23 +948,23 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
     : (t.direction === 'pines_to_sayville' ||
        (t.direction === 'unknown' && !trips.some(x => x.direction === 'pines_to_sayville'))));
 
-  // Group by dayLabel (or by sorted daysOfWeek). Trips with no day info → "Daily".
-  type Group = { label: string; minDay: number; trips: FerryTrip[] };
-  const byKey = new Map<string, Group>();
+  // Fan trips out into per-day buckets so a Mon–Wed parsed entry contributes to
+  // each of Monday, Tuesday, and Wednesday's cards independently.
+  const byDay = new Map<number, FerryTrip[]>();
   for (const t of filtered) {
-    const days = Array.isArray(t.daysOfWeek) && t.daysOfWeek.length ? t.daysOfWeek : null;
-    const key = days ? days.slice().sort((a, b) => a - b).join(',') : '__daily';
-    const minDay = days ? Math.min(...days.map(dowSortKey)) : 99;
-    const label = t.dayLabel || (days ? days.map(d => ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]).join(', ') : 'Daily');
-    let g = byKey.get(key);
-    if (!g) { g = { label, minDay, trips: [] }; byKey.set(key, g); }
-    g.trips.push(t);
+    const days = Array.isArray(t.daysOfWeek) && t.daysOfWeek.length
+      ? t.daysOfWeek
+      : DAY_CARDS.map(d => d.idx);   // legacy/mock entries fall back to "every day"
+    for (const d of days) {
+      if (!byDay.has(d)) byDay.set(d, []);
+      byDay.get(d)!.push(t);
+    }
   }
-  const groups = [...byKey.values()].sort((a, b) => a.minDay - b.minDay);
-  // Sort each group's trips by departure time and dedupe identical (time,extraStops) pairs.
-  for (const g of groups) {
+  // Per-day sort + dedupe (so two Mon–Wed entries with the same time/triangle
+  // collapse to one).
+  for (const [d, list] of byDay) {
     const seen = new Set<string>();
-    g.trips = g.trips
+    byDay.set(d, list
       .slice()
       .sort((a, b) => a.departureTime.localeCompare(b.departureTime))
       .filter(t => {
@@ -961,8 +972,11 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
         if (seen.has(k)) return false;
         seen.add(k);
         return true;
-      });
+      }));
   }
+  const dayCards = DAY_CARDS.map(d => ({ ...d, trips: byDay.get(d.idx) ?? [] }));
+  const haveAnyTrips = dayCards.some(d => d.trips.length > 0);
+  const haveAnyTriangle = dayCards.some(d => d.trips.some(t => t.extraStops));
 
   const title = ferryData?.scheduleTitle || 'Ferry Schedule';
   const dateRange = shortenWeekdays(ferryData?.effectiveDateRange);
@@ -1014,58 +1028,74 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
         })}
       </div>
 
-      {groups.length === 0 ? (
+      {!haveAnyTrips ? (
         <div style={{ fontFamily: F.hand, fontSize: 14, color: '#7a736a' }}>
           No ferry times found for this direction.
         </div>
       ) : (
-        groups.map(g => (
-          <SketchBox key={g.label} color={C.ink} fill={C.paper} radius={14} sw={1.6} pad={0}
-            style={{ marginBottom: 14 }}>
-            <div style={{ padding: '10px 14px 12px' }}>
-              <div style={{
-                fontFamily: F.marker, fontSize: 16, letterSpacing: 0.6,
-                color: C.ink, marginBottom: 8, textTransform: 'uppercase',
-                borderBottom: '1.2px dashed ' + C.ink, paddingBottom: 6,
-              }}>
-                {g.label}
-              </div>
-              <ol style={{
-                margin: 0, padding: 0, listStyle: 'none',
-                fontFamily: F.marker, fontSize: 16, color: C.ink,
-              }}>
-                {g.trips.map((t, i) => (
-                  <li key={`${t.departureTime}-${i}`} style={{
-                    display: 'flex', alignItems: 'baseline', gap: 8,
-                    padding: '4px 0',
-                  }}>
-                    <span style={{
-                      fontFamily: F.hand, fontSize: 13, color: '#9b958c',
-                      width: 24, flex: '0 0 auto', textAlign: 'right',
-                    }}>{i + 1}.</span>
-                    <span style={{ flex: 1, letterSpacing: 0.3 }}>{fmt(t.departureTime)}</span>
-                    {t.extraStops && (
-                      <span
-                        title="Boats stop at Cherry Grove en route"
-                        aria-label="stops at Cherry Grove"
-                        style={{
-                          fontFamily: F.marker, fontSize: 14, color: C.coral,
-                          flex: '0 0 auto',
-                        }}
-                      >
-                        ▲
-                      </span>
+        dayCards.map(d => {
+          const half = Math.ceil(d.trips.length / 2);
+          const left = d.trips.slice(0, half);
+          const right = d.trips.slice(half);
+          const renderItem = (t: FerryTrip) => (
+            <li key={t.departureTime + (t.extraStops ? 'x' : '')} style={{
+              display: 'flex', alignItems: 'baseline', gap: 8,
+              padding: '3px 0',
+            }}>
+              <span style={{ flex: 1, letterSpacing: 0.3 }}>{fmt(t.departureTime)}</span>
+              {t.extraStops && (
+                <span
+                  title="Boats stop at Cherry Grove en route"
+                  aria-label="stops at Cherry Grove"
+                  style={{
+                    fontFamily: F.marker, fontSize: 14, color: C.coral,
+                    flex: '0 0 auto', marginRight: 4,
+                  }}
+                >
+                  ▲
+                </span>
+              )}
+            </li>
+          );
+          return (
+            <SketchBox key={d.idx} color={C.ink} fill={C.paper} radius={14} sw={1.6} pad={0}
+              style={{ marginBottom: 14 }}>
+              <div style={{ padding: '10px 14px 12px' }}>
+                <div style={{
+                  fontFamily: F.marker, fontSize: 16, letterSpacing: 0.6,
+                  color: C.ink, marginBottom: 8, textTransform: 'uppercase',
+                  borderBottom: '1.2px dashed ' + C.ink, paddingBottom: 6,
+                }}>
+                  {d.label}
+                </div>
+                {d.trips.length === 0 ? (
+                  <div style={{ fontFamily: F.hand, fontSize: 13, color: '#9b958c' }}>
+                    No service.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 14, fontFamily: F.marker, fontSize: 16, color: C.ink }}>
+                    <ol start={1} style={{
+                      flex: 1, margin: 0, paddingInlineStart: 22,
+                    }}>
+                      {left.map(renderItem)}
+                    </ol>
+                    {right.length > 0 && (
+                      <ol start={half + 1} style={{
+                        flex: 1, margin: 0, paddingInlineStart: 22,
+                      }}>
+                        {right.map(renderItem)}
+                      </ol>
                     )}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </SketchBox>
-        ))
+                  </div>
+                )}
+              </div>
+            </SketchBox>
+          );
+        })
       )}
 
       {/* Cherry Grove footnote */}
-      {groups.some(g => g.trips.some(t => t.extraStops)) && (
+      {haveAnyTriangle && (
         <div style={{
           fontFamily: F.hand, fontSize: 12, color: '#7a736a',
           marginTop: 4, marginBottom: 12,
