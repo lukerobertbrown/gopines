@@ -7,7 +7,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const { defineSecret } = require("firebase-functions/params");
-const { buildSchedulePayload, formatYmdNy } = require("./pennSayvilleSchedule");
+const { buildSchedulePayload, formatYmdNy, STATIONS } = require("./pennSayvilleSchedule");
 const {
   fetchLirrGtfsRt,
   decodeFeed,
@@ -55,29 +55,36 @@ function checkBearerToken(req, res, secret) {
 // We always parse and cache the full 14-day window. Shorter requests slice it.
 const REFRESH_DAYS = 14;
 const LIRR_CACHE_COLLECTION = "lirr_cache";
-const LIRR_CACHE_DOC = "penn_sayville_schedule";
+/** Firestore doc name for each station key. */
+const STATION_DOC_NAMES = {
+  penn:            "penn_sayville_schedule",
+  "grand-central": "grand_central_sayville_schedule",
+  atlantic:        "atlantic_terminal_sayville_schedule",
+};
 /** Bump when buildSchedulePayload's output shape changes meaningfully. */
 const CURRENT_LIRR_VERSION = 1;
 /** Stale-fallback threshold for the Firestore doc — beyond this, HTTP handlers
  * proactively re-fetch even if the scheduled job hasn't run yet. */
 const FIRESTORE_MAX_AGE_MS = 26 * 60 * 60 * 1000;
 
-/** @type {{ payload: object | null; loadedAt: number; days: number }} */
-let scheduleCache = { payload: null, loadedAt: 0, days: 0 };
+/** In-memory caches keyed by station key. */
+const scheduleCaches = {};
 const SCHEDULE_TTL_MS = 30 * 60 * 1000;
 
-/** @type {{ payload: object | null; loadedAt: number; days: number }} */
-let liveScheduleCache = { payload: null, loadedAt: 0, days: 0 };
+const liveScheduleCaches = {};
 const LIVE_SCHEDULE_TTL_MS = 60 * 1000;
 
 /**
- * Fetch + parse the GTFS, store the full 14-day payload in Firestore. Used by
- * the scheduled job (force=false, skips when fresh) and the on-demand endpoint
+ * Fetch + parse the GTFS for one station, store in Firestore. Used by the
+ * scheduled job (force=false, skips when fresh) and the on-demand endpoint
  * (force=true).
  */
-async function refreshLirrSchedule({ force = false } = {}) {
+async function refreshLirrScheduleForStation(stationKey, { force = false } = {}) {
+  const station = STATIONS[stationKey];
+  if (!station) throw new Error(`Unknown station key: ${stationKey}`);
+  const docName = STATION_DOC_NAMES[stationKey];
   const db = admin.firestore();
-  const docRef = db.collection(LIRR_CACHE_COLLECTION).doc(LIRR_CACHE_DOC);
+  const docRef = db.collection(LIRR_CACHE_COLLECTION).doc(docName);
 
   if (!force) {
     const existing = await docRef.get();
@@ -91,23 +98,23 @@ async function refreshLirrSchedule({ force = false } = {}) {
       data.payload.days.length > 0 &&
       ageMs < FIRESTORE_MAX_AGE_MS;
     if (fresh) {
-      console.log(`refreshLirrSchedule: skip (doc ${Math.round(ageMs / 60000)}m old, parseVersion ok)`);
-      return { skipped: true, reason: "fresh" };
+      console.log(`refreshLirrSchedule[${stationKey}]: skip (${Math.round(ageMs / 60000)}m old, version ok)`);
+      return { skipped: true, stationKey, reason: "fresh" };
     }
   }
 
-  const payload = await buildSchedulePayload(REFRESH_DAYS);
+  const payload = await buildSchedulePayload(REFRESH_DAYS, station.id);
   await docRef.set({
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     parseVersion: CURRENT_LIRR_VERSION,
     payload,
   });
   // Reset in-memory caches so the next request picks up the new payload.
-  scheduleCache = { payload: null, loadedAt: 0, days: 0 };
-  liveScheduleCache = { payload: null, loadedAt: 0, days: 0 };
+  scheduleCaches[stationKey] = { payload: null, loadedAt: 0, days: 0 };
+  liveScheduleCaches[stationKey] = { payload: null, loadedAt: 0, days: 0 };
   const count = (payload.days || []).length;
-  console.log(`refreshLirrSchedule: wrote ${count} day(s) to Firestore`);
-  return { ok: true, count };
+  console.log(`refreshLirrSchedule[${stationKey}]: wrote ${count} day(s) to Firestore`);
+  return { ok: true, stationKey, count };
 }
 
 exports.refreshLirrGtfs = onSchedule(
@@ -116,10 +123,12 @@ exports.refreshLirrGtfs = onSchedule(
     timeZone: "America/New_York",
     region: "us-east1",
     memory: "1GiB",
-    timeoutSeconds: 180,
+    timeoutSeconds: 540,
   },
   async () => {
-    await refreshLirrSchedule({ force: false });
+    for (const key of Object.keys(STATIONS)) {
+      await refreshLirrScheduleForStation(key, { force: false });
+    }
     return null;
   },
 );
@@ -129,7 +138,7 @@ exports.forceRefreshLirrGtfs = onRequest(
     cors: corsOrigins,
     invoker: "public",
     memory: "1GiB",
-    timeoutSeconds: 180,
+    timeoutSeconds: 540,
     secrets: [FORCE_TRIGGER_TOKEN],
   },
   async (req, res) => {
@@ -139,8 +148,11 @@ exports.forceRefreshLirrGtfs = onRequest(
     }
     if (!checkBearerToken(req, res, FORCE_TRIGGER_TOKEN)) return;
     try {
-      const result = await refreshLirrSchedule({ force: true });
-      res.status(200).json(result);
+      const results = [];
+      for (const key of Object.keys(STATIONS)) {
+        results.push(await refreshLirrScheduleForStation(key, { force: true }));
+      }
+      res.status(200).json({ ok: true, results });
     } catch (e) {
       console.error(e);
       res.status(500).json({ error: String((e && e.message) || e) });
@@ -149,13 +161,15 @@ exports.forceRefreshLirrGtfs = onRequest(
 );
 
 /**
- * Read the cached 14-day payload, preferring Firestore. Falls back to a
- * live fetch + write-through if the doc is missing, version-mismatched, or
- * older than FIRESTORE_MAX_AGE_MS (the scheduled job stopped running).
+ * Read the cached 14-day payload for a station, preferring Firestore. Falls
+ * back to a live fetch + write-through if the doc is missing or stale.
  */
-async function getCachedLirrPayload() {
+async function getCachedLirrPayload(stationKey) {
+  const station = STATIONS[stationKey];
+  if (!station) throw new Error(`Unknown station key: ${stationKey}`);
+  const docName = STATION_DOC_NAMES[stationKey];
   const db = admin.firestore();
-  const docRef = db.collection(LIRR_CACHE_COLLECTION).doc(LIRR_CACHE_DOC);
+  const docRef = db.collection(LIRR_CACHE_COLLECTION).doc(docName);
   const snap = await docRef.get();
   if (snap.exists) {
     const data = snap.data();
@@ -172,7 +186,7 @@ async function getCachedLirrPayload() {
     }
   }
   // Firestore doc missing/stale — fetch fresh and write through.
-  const fresh = await buildSchedulePayload(REFRESH_DAYS);
+  const fresh = await buildSchedulePayload(REFRESH_DAYS, station.id);
   await docRef.set({
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     parseVersion: CURRENT_LIRR_VERSION,
@@ -213,20 +227,22 @@ exports.getLirrSchedule = onRequest(
       return;
     }
     try {
-      const days = Math.min(14, Math.max(1, parseInt(String(req.query.days || "14"), 10) || 14));
-      const now = Date.now();
-      if (
-        scheduleCache.payload &&
-        scheduleCache.days === days &&
-        now - scheduleCache.loadedAt < SCHEDULE_TTL_MS
-      ) {
-        res.set("Cache-Control", "public, max-age=300");
-        res.status(200).json(scheduleCache.payload);
+      const originKey = String(req.query.origin || "penn");
+      if (!STATIONS[originKey]) {
+        res.status(400).json({ error: `Unknown origin: "${originKey}". Valid: ${Object.keys(STATIONS).join(", ")}` });
         return;
       }
-      const fullPayload = await getCachedLirrPayload();
+      const days = Math.min(14, Math.max(1, parseInt(String(req.query.days || "14"), 10) || 14));
+      const now = Date.now();
+      const cache = scheduleCaches[originKey] || { payload: null, loadedAt: 0, days: 0 };
+      if (cache.payload && cache.days === days && now - cache.loadedAt < SCHEDULE_TTL_MS) {
+        res.set("Cache-Control", "public, max-age=300");
+        res.status(200).json(cache.payload);
+        return;
+      }
+      const fullPayload = await getCachedLirrPayload(originKey);
       const payload = sliceDaysFromPayload(fullPayload, days);
-      scheduleCache = { payload, loadedAt: now, days };
+      scheduleCaches[originKey] = { payload, loadedAt: now, days };
       res.set("Cache-Control", "public, max-age=300");
       res.status(200).json(payload);
     } catch (e) {
@@ -252,19 +268,21 @@ exports.getLirrScheduleLive = onRequest(
       return;
     }
     try {
+      const originKey = String(req.query.origin || "penn");
+      if (!STATIONS[originKey]) {
+        res.status(400).json({ error: `Unknown origin: "${originKey}". Valid: ${Object.keys(STATIONS).join(", ")}` });
+        return;
+      }
       const days = Math.min(14, Math.max(1, parseInt(String(req.query.days || "14"), 10) || 14));
       const now = Date.now();
-      if (
-        liveScheduleCache.payload &&
-        liveScheduleCache.days === days &&
-        now - liveScheduleCache.loadedAt < LIVE_SCHEDULE_TTL_MS
-      ) {
+      const cache = liveScheduleCaches[originKey] || { payload: null, loadedAt: 0, days: 0 };
+      if (cache.payload && cache.days === days && now - cache.loadedAt < LIVE_SCHEDULE_TTL_MS) {
         res.set("Cache-Control", "public, max-age=30");
-        res.status(200).json(liveScheduleCache.payload);
+        res.status(200).json(cache.payload);
         return;
       }
 
-      const fullPayload = await getCachedLirrPayload();
+      const fullPayload = await getCachedLirrPayload(originKey);
       const basePayload = sliceDaysFromPayload(fullPayload, days);
       // Clone so the realtime merge doesn't mutate the cached static payload.
       const payload = JSON.parse(JSON.stringify(basePayload));
@@ -293,7 +311,7 @@ exports.getLirrScheduleLive = onRequest(
         note: "Delays merged onto legs for today only (matched by trip_id + stop_id). Feed fetched without API key.",
       };
 
-      liveScheduleCache = { payload, loadedAt: now, days };
+      liveScheduleCaches[originKey] = { payload, loadedAt: now, days };
       res.set("Cache-Control", "public, max-age=30");
       res.status(200).json(payload);
     } catch (e) {

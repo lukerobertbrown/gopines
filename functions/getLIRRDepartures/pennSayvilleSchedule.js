@@ -9,6 +9,14 @@ const { parse } = require("csv-parse/sync");
 const GTFS_ZIP_URL = "https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip";
 const PENN_ID = "237";
 const SAYVILLE_ID = "204";
+const GRAND_CENTRAL_ID = "349";
+const ATLANTIC_TERMINAL_ID = "241";
+
+const STATIONS = {
+  penn:             { id: PENN_ID,             label: "Penn Station"          },
+  "grand-central":  { id: GRAND_CENTRAL_ID,    label: "Grand Central Madison" },
+  atlantic:         { id: ATLANTIC_TERMINAL_ID, label: "Atlantic Terminal"    },
+};
 const DEFAULT_MIN_TRANSFER_SEC = 300;
 const MAX_JOURNEYS_PER_DAY = 200;
 
@@ -315,7 +323,7 @@ function addCalendarDaysYmd(ymdDash, deltaDays) {
   return formatYmdNy(dt);
 }
 
-async function buildSchedulePayload(numDays = 14) {
+async function buildSchedulePayload(numDays = 14, originId = PENN_ID) {
   const buf = await fetchGtfsZipBuffer();
   const gtfs = await loadGtfsFromZipBuffer(buf);
   const names = stopNameMap(gtfs.stops);
@@ -346,7 +354,7 @@ async function buildSchedulePayload(numDays = 14) {
       serviceByTrip,
       active,
       names,
-      origin: PENN_ID,
+      origin: originId,
       dest: SAYVILLE_ID,
       minTransferSec: DEFAULT_MIN_TRANSFER_SEC,
     });
@@ -358,7 +366,7 @@ async function buildSchedulePayload(numDays = 14) {
       active,
       names,
       origin: SAYVILLE_ID,
-      dest: PENN_ID,
+      dest: originId,
       minTransferSec: DEFAULT_MIN_TRANSFER_SEC,
     });
 
@@ -376,9 +384,9 @@ async function buildSchedulePayload(numDays = 14) {
     source: GTFS_ZIP_URL,
     feedVersion: gtfs.feedInfo.feed_version || "",
     disclaimer:
-      "Static schedule from MTA GTFS. /api/lirrScheduleLive merges GTFS-Realtime delays for today (live feed is currently reachable without an API key). Transfer buffer 5 min. At most one transfer; up to 200 options per direction per day after deduping by Penn/Sayville departure minute.",
+      "Static schedule from MTA GTFS. /api/lirrScheduleLive merges GTFS-Realtime delays for today (live feed is currently reachable without an API key). Transfer buffer 5 min. At most one transfer; up to 200 options per direction per day after deduping by departure minute.",
     stops: {
-      penn: { id: PENN_ID, name: names.get(PENN_ID) },
+      origin: { id: originId, name: names.get(originId) },
       sayville: { id: SAYVILLE_ID, name: names.get(SAYVILLE_ID) },
     },
     days,
@@ -391,4 +399,7 @@ module.exports = {
   formatYmdNy,
   PENN_ID,
   SAYVILLE_ID,
+  GRAND_CENTRAL_ID,
+  ATLANTIC_TERMINAL_ID,
+  STATIONS,
 };
