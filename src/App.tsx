@@ -725,7 +725,7 @@ function DirectionToggle({ value, onChange }: {
                   {k === 'to-pines' ? <BeachSketch size={26} /> : <SkylineSketch size={26} />}
                 </span>
                 <span style={{ whiteSpace: 'nowrap' }}>
-                  {k === 'to-pines' ? 'To the Pines' : 'To Penn'}
+                  {k === 'to-pines' ? 'To the Pines' : 'From the Pines'}
                 </span>
               </button>
             );
@@ -846,7 +846,7 @@ function SegmentSprite({ kind, animated }: { kind: Segment['kind']; animated: bo
 }
 
 function buildShareText(direction: 'to-pines' | 'to-penn', dateLabel: string, segments: Segment[]): string {
-  const dirLabel = direction === 'to-pines' ? 'To the Pines' : 'To Penn';
+  const dirLabel = direction === 'to-pines' ? 'To the Pines' : 'From the Pines';
   const bullets = segments.map(s => {
     const tail = s.name ? ` (${s.name})` : '';
     return `• ${s.time} — ${s.fromTo}${tail}`;
