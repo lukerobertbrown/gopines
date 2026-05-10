@@ -70,9 +70,20 @@ The dev server proxies `/api/*` to the live `gopines.web.app` functions, so you 
 
    Tunable in `src/App.tsx` via `AVOID_TOTAL_MIN`, `COMFORT_LAYOVER_MIN`, `MAX_LAYOVER_MIN`.
 
+## Daily ingestion jobs
+
+Both data sources have a 6:00 ET scheduled refresh that writes a normalised payload to Firestore. The HTTP endpoints read from Firestore on the request path, with a write-through fallback if the doc is missing or stale.
+
+| Job | Source | Firestore doc | Force endpoint |
+|---|---|---|---|
+| `refreshLirrGtfs` | `gtfslirr.zip` from `rrgtfsfeeds.s3.amazonaws.com` | `lirr_cache/penn_sayville_schedule` | `POST /api/forceRefreshLirrGtfs` |
+| `ingestSayvilleFerryPines` | Sayville Ferry website (PNG + PDF) | `ferry_cache/pines_schedule` | `POST /api/forceIngestSayvilleFerryPines` |
+
+The LIRR job parses 14 days at a time. Shorter requests (`?days=2`) slice in-memory from the cached payload. The realtime feed (GTFS-RT delays) is **not** scheduled — it's fetched on the request path with a 1-min cache, because by definition realtime data has to be read at the moment of the request.
+
 ## Ferry schedule ingestion
 
-A scheduled function (`ingestSayvilleFerryPines`) runs daily at 6:00 ET and refreshes the cache.
+`ingestSayvilleFerryPines` runs daily at 6:00 ET and refreshes the ferry cache.
 
 The parser does two passes:
 
@@ -101,7 +112,8 @@ Defined in `firebase.json`:
 | `/api/lirrScheduleLive` | `getLirrScheduleLive` | Static + GTFS-Realtime delays for today |
 | `/api/lirrRealtime` | `getLirrRealtime` | Raw GTFS-RT summary (debug) |
 | `/api/ferrySchedule` | `getFerrySchedule` | Returns the cached ferry doc + optional `nextFerriesFromSayville` if `?trainArrival=<unix>` |
-| `/api/forceIngestSayvilleFerryPines` | `forceIngestSayvilleFerryPines` | Re-runs the daily ingest on demand |
+| `/api/forceIngestSayvilleFerryPines` | `forceIngestSayvilleFerryPines` | Re-runs the ferry daily ingest on demand |
+| `/api/forceRefreshLirrGtfs` | `forceRefreshLirrGtfs` | Re-runs the LIRR daily refresh on demand |
 
 Everything else SPA-falls back to `/index.html`.
 
@@ -146,7 +158,7 @@ To slice by `direction` / `surface` / etc. in standard reports, register them as
 
 ## Limitations
 
-- LIRR static GTFS only refreshes on redeploy. The MTA changes infrequently but a major timetable change requires bumping the LIRR function.
+- The LIRR static GTFS is refreshed once a day at 6:00 ET; intra-day timetable changes published by the MTA won't appear until the next morning (or until someone hits `/api/forceRefreshLirrGtfs`).
 - Realtime delays merge for *today only*; future-dated plans use scheduled times.
 - Ferry OCR is calibrated to the current Sayville Ferry website layout. A redesign on their end may need parser tweaks.
 - Adblockers strip the GA tag; analytics counts will be lower than reality.
