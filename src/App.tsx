@@ -1065,7 +1065,11 @@ function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
 }
 
 // ─── Menu / overlay panel ─────────────────────────────────────────────────────
-type PanelView = 'closed' | 'menu' | 'ferry' | 'about';
+type PanelView = 'closed' | 'menu' | 'ferry' | 'about' | 'home-station';
+
+type HomeStation = 'penn';
+
+const HOME_STATION_KEY = 'gopines_home_station';
 
 function MenuLink({ label, onClick }: { label: string; onClick: () => void }) {
   return (
@@ -1382,13 +1386,85 @@ function AboutView() {
   );
 }
 
+const STATIONS: { id: HomeStation | string; label: string; available: boolean }[] = [
+  { id: 'penn',     label: 'Penn Station',     available: true  },
+  { id: 'grand-central', label: 'Grand Central',    available: false },
+  { id: 'atlantic', label: 'Atlantic Terminal', available: false },
+  { id: 'woodside', label: 'Woodside',          available: false },
+];
+
+function HomeStationView({
+  selected, onSelect,
+}: { selected: HomeStation; onSelect: (s: HomeStation) => void }) {
+  return (
+    <div>
+      <div style={{ fontFamily: F.hand, fontSize: 14, color: '#9b958c', marginBottom: 16, lineHeight: 1.5 }}>
+        Choose your departure hub. The app will default to showing trains from this station.
+      </div>
+      {STATIONS.map(s => (
+        <button
+          key={s.id}
+          disabled={!s.available}
+          onClick={() => s.available && onSelect(s.id as HomeStation)}
+          style={{
+            display: 'flex', alignItems: 'center', width: '100%',
+            border: 'none', background: 'transparent',
+            padding: '13px 0', cursor: s.available ? 'pointer' : 'default',
+            borderBottom: '1.5px dashed ' + (s.available ? C.ink : '#d0ccc7'),
+            gap: 12,
+          }}
+        >
+          <span style={{
+            width: 22, height: 22, flexShrink: 0, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            border: '1.5px solid ' + (s.available ? C.ink : '#c8c3bd'),
+            borderRadius: 4,
+            background: selected === s.id ? C.ink : 'transparent',
+            color: C.paper,
+            fontSize: 13, fontWeight: 700,
+          }}>
+            {selected === s.id && '✓'}
+          </span>
+          <span style={{
+            fontFamily: F.marker, fontSize: 20,
+            color: s.available ? C.ink : '#b5b0aa',
+            letterSpacing: 0.4,
+          }}>
+            {s.label}
+          </span>
+          {!s.available && (
+            <span style={{ marginLeft: 'auto', fontFamily: F.hand, fontSize: 12, color: '#c0bbb5' }}>
+              coming soon
+            </span>
+          )}
+        </button>
+      ))}
+      <button
+        onClick={() => {}}
+        style={{
+          display: 'block', width: '100%', marginTop: 20,
+          padding: '12px 0', textAlign: 'center',
+          border: '1.5px dashed ' + C.ink, borderRadius: 8,
+          background: 'transparent', cursor: 'pointer',
+          fontFamily: F.marker, fontSize: 17, color: C.ink,
+          letterSpacing: 0.4,
+        }}
+      >
+        Request a Station
+      </button>
+    </div>
+  );
+}
+
 function MenuPanel({
-  view, setView, ferryData, ferryMock,
+  view, setView, ferryData, ferryMock, homeStation, setHomeStation,
 }: {
   view: PanelView;
   setView: (v: PanelView) => void;
   ferryData: FerryResp | null;
   ferryMock: boolean;
+  homeStation: HomeStation;
+  setHomeStation: (s: HomeStation) => void;
 }) {
   const open = view !== 'closed';
 
@@ -1448,11 +1524,13 @@ function MenuPanel({
         {view === 'menu' && (
           <div>
             <MenuLink label="Ferry Schedule" onClick={() => setView('ferry')} />
+            <MenuLink label="Home Station"   onClick={() => setView('home-station')} />
             <MenuLink label="About"          onClick={() => setView('about')} />
           </div>
         )}
-        {view === 'ferry' && <FerryScheduleView ferryData={ferryData} ferryMock={ferryMock} />}
-        {view === 'about' && <AboutView />}
+        {view === 'ferry'         && <FerryScheduleView ferryData={ferryData} ferryMock={ferryMock} />}
+        {view === 'home-station'  && <HomeStationView selected={homeStation} onSelect={s => { setHomeStation(s); }} />}
+        {view === 'about'         && <AboutView />}
       </div>
     </div>
   );
@@ -1472,6 +1550,13 @@ export function App() {
   const [err, setErr]             = useState<string | null>(null);
   const [ferryMock, setFerryMock] = useState(false);
   const [panel, setPanel]         = useState<PanelView>('closed');
+  const [homeStation, setHomeStationState] = useState<HomeStation>(
+    () => (localStorage.getItem(HOME_STATION_KEY) as HomeStation | null) ?? 'penn'
+  );
+  const setHomeStation = (s: HomeStation) => {
+    localStorage.setItem(HOME_STATION_KEY, s);
+    setHomeStationState(s);
+  };
   const [qualities, setQualities] = useState<Stoplight[]>(['green']);
   const toggleQuality = (s: Stoplight) =>
     setQualities(qs => qs.includes(s) ? qs.filter(x => x !== s) : [...qs, s]);
@@ -1611,7 +1696,7 @@ export function App() {
         ferry data scraped daily · LIRR via open feed
       </div>
 
-      <MenuPanel view={panel} setView={setPanel} ferryData={ferryData} ferryMock={ferryMock} />
+      <MenuPanel view={panel} setView={setPanel} ferryData={ferryData} ferryMock={ferryMock} homeStation={homeStation} setHomeStation={setHomeStation} />
     </div>
   );
 }
