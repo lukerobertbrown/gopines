@@ -31,6 +31,11 @@
         "region": "us-east1"
       },
       {
+        "source": "/api/forceRefreshLirrGtfs",
+        "function": "forceRefreshLirrGtfs",
+        "region": "us-east1"
+      },
+      {
         "source": "/api/ferrySchedule",
         "function": "getFerrySchedule",
         "region": "us-east1"
