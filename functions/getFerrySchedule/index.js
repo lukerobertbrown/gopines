@@ -7,12 +7,10 @@ const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { setGlobalOptions } = require("firebase-functions/v2");
 const vision = require("@google-cloud/vision");
-const pdfParse = require("pdf-parse");
 const { DateTime } = require("luxon");
 
 const { discoverPinesScheduleAssets } = require("./sayvilleDiscover");
 const { parseVisionDocumentResult } = require("./sayvilleParseVision");
-const { parseSayvillePdfText } = require("./sayvilleParsePdf");
 
 setGlobalOptions({
   region: "us-east1",
@@ -27,36 +25,101 @@ const PINES_DOC = "pines_schedule";
 const TZ = "America/New_York";
 const WALK_FROM_STATION_SEC = 600;
 
-/** Bump when parser / ingest logic changes to force a fresh run for the same PNG/PDF URLs. */
-const CURRENT_INGEST_VERSION = 2;
+/** Bump when parser logic changes to force a fresh ingest of unchanged source URLs. */
+const CURRENT_INGEST_VERSION = 3;
 
 /**
- * @param {FirebaseFirestore.DocumentData | undefined} trips
+ * @param {FirebaseFirestore.DocumentData[]|undefined} trips
  * @param {number} trainArrivalUnix
  * @param {number} limit
  */
 function selectFerriesAfterTrain(trips, trainArrivalUnix, limit) {
   const list = Array.isArray(trips) ? trips : [];
-  const ymd = DateTime.fromSeconds(trainArrivalUnix, { zone: TZ }).toFormat("yyyy-MM-dd");
+  const dt = DateTime.fromSeconds(trainArrivalUnix, { zone: TZ });
+  const ymd = dt.toFormat("yyyy-MM-dd");
+  // Luxon weekday: Mon=1..Sun=7. JS day: Sun=0..Sat=6.
+  const dow = dt.weekday % 7;
   const threshold = trainArrivalUnix + WALK_FROM_STATION_SEC;
   return list
     .filter((t) => t && (t.direction === "sayville_to_pines" || t.direction === "unknown"))
+    .filter((t) => !Array.isArray(t.daysOfWeek) || t.daysOfWeek.includes(dow))
     .map((t) => {
-      const dt = DateTime.fromISO(`${ymd}T${t.departureTime}`, { zone: TZ });
-      if (!dt.isValid) return null;
-      const { departureTime, direction, sourceColumn, rawLine } = t;
+      const departDt = DateTime.fromISO(`${ymd}T${t.departureTime}`, { zone: TZ });
+      if (!departDt.isValid) return null;
       return {
-        departureTime,
-        direction,
-        sourceColumn,
-        rawLine,
-        departUnix: Math.floor(dt.toSeconds()),
+        departureTime: t.departureTime,
+        direction: t.direction,
+        sourceColumn: t.sourceColumn,
+        rawLine: t.rawLine,
+        daysOfWeek: t.daysOfWeek,
+        dayLabel: t.dayLabel,
+        departUnix: Math.floor(departDt.toSeconds()),
       };
     })
     .filter(Boolean)
     .filter((x) => x.departUnix >= threshold)
     .sort((a, b) => a.departUnix - b.departUnix)
     .slice(0, limit);
+}
+
+/**
+ * Shared ingestion logic — used by the scheduled job and the on-demand
+ * forceIngestSayvilleFerryPines endpoint. When `force` is true, the version
+ * + URL guard is skipped.
+ */
+async function ingestPinesSchedule({ force = false } = {}) {
+  const assets = await discoverPinesScheduleAssets();
+  const db = admin.firestore();
+  const docRef = db.collection(FERRY_CACHE).doc(PINES_DOC);
+  const existing = await docRef.get();
+  const ex = existing.data();
+
+  const sameAssets =
+    ex?.pngUrl === assets.pngUrl && (ex?.pdfUrl || "") === (assets.pdfUrl || "");
+  const alreadyOk =
+    sameAssets &&
+    ex?.parseVersion === CURRENT_INGEST_VERSION &&
+    Array.isArray(ex?.trips) &&
+    ex.trips.length > 0;
+
+  if (!force && existing.exists && alreadyOk) {
+    console.log("ingestPinesSchedule: skip (same assets, current version, trips populated)");
+    return { skipped: true, reason: "unchanged" };
+  }
+
+  const fetchOpts = {
+    headers: { "user-agent": "Mozilla/5.0 (compatible; gopines/1.0; +https://gopines.gay)" },
+  };
+
+  const pngRes = await fetch(assets.pngUrl, fetchOpts);
+  if (!pngRes.ok) throw new Error(`PNG fetch failed: ${pngRes.status}`);
+  const pngBuf = Buffer.from(await pngRes.arrayBuffer());
+
+  const client = new vision.ImageAnnotatorClient();
+  const [result] = await client.documentTextDetection({ image: { content: pngBuf } });
+  if (result.error && result.error.message) {
+    throw new Error(`Vision API: ${result.error.message}`);
+  }
+
+  const parsed = parseVisionDocumentResult(result);
+  const trips = parsed.trips;
+  const parseNotes = parsed.parseNotes;
+
+  await docRef.set({
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    effectiveLabel: assets.effectiveLabel,
+    pngTitle: assets.pngTitle,
+    sourcePageUrl: assets.sourcePageUrl,
+    pngUrl: assets.pngUrl,
+    pdfUrl: assets.pdfUrl || null,
+    trips,
+    parseVersion: CURRENT_INGEST_VERSION,
+    parseSource: "vision",
+    visionConfidenceNote: parseNotes,
+  });
+
+  console.log(`ingestPinesSchedule: stored ${trips.length} trips (${parseNotes})`);
+  return { ok: true, count: trips.length, parseNotes };
 }
 
 exports.ingestSayvilleFerryPines = onSchedule(
@@ -68,82 +131,30 @@ exports.ingestSayvilleFerryPines = onSchedule(
     timeoutSeconds: 300,
   },
   async () => {
-    const assets = await discoverPinesScheduleAssets();
-    const db = admin.firestore();
-    const docRef = db.collection(FERRY_CACHE).doc(PINES_DOC);
-    const existing = await docRef.get();
-    const ex = existing.data();
-
-    const sameAssets =
-      ex?.pngUrl === assets.pngUrl && (ex?.pdfUrl || "") === (assets.pdfUrl || "");
-    const alreadyOk =
-      sameAssets &&
-      ex?.parseVersion === CURRENT_INGEST_VERSION &&
-      Array.isArray(ex?.trips) &&
-      ex.trips.length > 0;
-
-    if (existing.exists && alreadyOk) {
-      console.log("ingestSayvilleFerryPines: skip (same assets, trips already populated)");
-      return null;
-    }
-
-    const fetchOpts = {
-      headers: { "user-agent": "Mozilla/5.0 (compatible; gopines/1.0; +https://gopines.gay)" },
-    };
-
-    /** @type {object[]} */
-    let trips = [];
-    let parseNotes = "none";
-    let parseSource = "none";
-
-    if (assets.pdfUrl) {
-      const pdfRes = await fetch(assets.pdfUrl, fetchOpts);
-      if (pdfRes.ok) {
-        const pdfBuf = Buffer.from(await pdfRes.arrayBuffer());
-        const pdfData = await pdfParse(pdfBuf);
-        const parsed = parseSayvillePdfText(pdfData.text);
-        trips = parsed.trips;
-        parseNotes = parsed.parseNotes;
-        parseSource = "pdf";
-      } else {
-        parseNotes = `pdf_fetch_${pdfRes.status}`;
-      }
-    }
-
-    if (trips.length === 0) {
-      const pngRes = await fetch(assets.pngUrl, fetchOpts);
-      if (!pngRes.ok) throw new Error(`PNG fetch failed: ${pngRes.status}`);
-      const pngBuf = Buffer.from(await pngRes.arrayBuffer());
-
-      const client = new vision.ImageAnnotatorClient();
-      const [result] = await client.documentTextDetection({ image: { content: pngBuf } });
-      if (result.error && result.error.message) {
-        throw new Error(`Vision API: ${result.error.message}`);
-      }
-
-      const parsed = parseVisionDocumentResult(result);
-      trips = parsed.trips;
-      parseNotes = parsed.parseNotes;
-      parseSource = "vision";
-    }
-
-    await docRef.set({
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      effectiveLabel: assets.effectiveLabel,
-      pngTitle: assets.pngTitle,
-      sourcePageUrl: assets.sourcePageUrl,
-      pngUrl: assets.pngUrl,
-      pdfUrl: assets.pdfUrl || null,
-      trips,
-      parseVersion: CURRENT_INGEST_VERSION,
-      parseSource,
-      visionConfidenceNote: parseNotes,
-    });
-
-    console.log(
-      `ingestSayvilleFerryPines: stored ${trips.length} trips (source=${parseSource}, ${parseNotes})`,
-    );
+    await ingestPinesSchedule({ force: false });
     return null;
+  },
+);
+
+exports.forceIngestSayvilleFerryPines = onRequest(
+  {
+    cors: corsOrigins,
+    invoker: "public",
+    memory: "1GiB",
+    timeoutSeconds: 300,
+  },
+  async (req, res) => {
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+    try {
+      const result = await ingestPinesSchedule({ force: true });
+      res.status(200).json(result);
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: String((e && e.message) || e) });
+    }
   },
 );
 
@@ -164,7 +175,7 @@ exports.getFerrySchedule = onRequest(
       if (!snap.exists) {
         res.status(503).json({
           error:
-            "Ferry schedule not ingested yet. The daily job runs at 6:00 America/New_York, or trigger the scheduled function once from GCP.",
+            "Ferry schedule not ingested yet. The daily job runs at 6:00 America/New_York, or call /forceIngestSayvilleFerryPines once.",
         });
         return;
       }
@@ -205,7 +216,7 @@ exports.getFerrySchedule = onRequest(
       });
     } catch (e) {
       console.error(e);
-      res.status(500).json({ error: String(e && e.message ? e.message : e) });
+      res.status(500).json({ error: String((e && e.message) || e) });
     }
   },
 );
