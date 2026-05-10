@@ -11,6 +11,7 @@ const { DateTime } = require("luxon");
 
 const { discoverPinesScheduleAssets } = require("./sayvilleDiscover");
 const { parseVisionDocumentResult } = require("./sayvilleParseVision");
+const { parseSayvillePinesPdf } = require("./sayvilleParsePdf");
 
 setGlobalOptions({
   region: "us-east1",
@@ -26,7 +27,7 @@ const TZ = "America/New_York";
 const WALK_FROM_STATION_SEC = 600;
 
 /** Bump when parser logic changes to force a fresh ingest of unchanged source URLs. */
-const CURRENT_INGEST_VERSION = 4;
+const CURRENT_INGEST_VERSION = 5;
 
 /**
  * @param {FirebaseFirestore.DocumentData[]|undefined} trips
@@ -103,9 +104,47 @@ async function ingestPinesSchedule({ force = false } = {}) {
 
   const parsed = parseVisionDocumentResult(result);
   const trips = parsed.trips;
-  const parseNotes = parsed.parseNotes;
+  let parseNotes = parsed.parseNotes;
   const scheduleTitle = parsed.scheduleTitle ?? null;
   const effectiveDateRange = parsed.effectiveDateRange ?? null;
+
+  // Cross-reference with the PDF (if available). The PDF preserves real
+  // glyphs, so it has reliable ▲ markers and STARTS/ENDS/ONLY annotations
+  // that OCR drops. We use Vision as the source of truth for trip *existence*
+  // and let the PDF augment each trip's `extraStops` / `effectiveStart` /
+  // `effectiveEnd` attributes by matching on (dayLabel, direction, time).
+  let pdfAugmented = 0;
+  try {
+    if (assets.pdfUrl) {
+      const pdfRes = await fetch(assets.pdfUrl, fetchOpts);
+      if (pdfRes.ok) {
+        const pdfBuf = Buffer.from(await pdfRes.arrayBuffer());
+        const pdfParsed = await parseSayvillePinesPdf(pdfBuf, { scheduleTitle });
+        const pdfTrips = pdfParsed.trips || [];
+        // Index by (dayLabel|direction|HH:MM) for O(1) lookup.
+        const idx = new Map();
+        for (const p of pdfTrips) {
+          const key = `${p.dayLabel}|${p.direction}|${p.departureTime}`;
+          idx.set(key, p);
+        }
+        for (const t of trips) {
+          const key = `${t.dayLabel}|${t.direction}|${t.departureTime}`;
+          const m = idx.get(key);
+          if (!m) continue;
+          if (typeof m.extraStops === "boolean") t.extraStops = m.extraStops;
+          if (m.effectiveStart) t.effectiveStart = m.effectiveStart;
+          if (m.effectiveEnd) t.effectiveEnd = m.effectiveEnd;
+          pdfAugmented++;
+        }
+        parseNotes = `${parseNotes}+pdf:${pdfParsed.parseNotes}|augmented=${pdfAugmented}`;
+      } else {
+        parseNotes = `${parseNotes}+pdf_fetch_${pdfRes.status}`;
+      }
+    }
+  } catch (e) {
+    console.warn("PDF cross-reference failed:", (e && e.message) || e);
+    parseNotes = `${parseNotes}+pdf_error`;
+  }
 
   await docRef.set({
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
