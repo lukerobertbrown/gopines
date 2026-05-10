@@ -11,11 +11,3 @@ button {
   font-size: inherit;
   font-family: inherit;
 }
-
-/* Generic horizontal bob used by disco-pick cards. Adjacent sprites pass each
-   other in opposite phase via animation-delay (-1.5s on every other sprite),
-   so as one is at its leftmost position the next is at its rightmost. */
-@keyframes wf-bob {
-  0%, 100% { transform: translateX(-9px); }
-  50%       { transform: translateX(9px); }
-}

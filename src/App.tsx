@@ -90,7 +90,6 @@ type Itinerary = {
   layover: number;   // minutes at Sayville
   total: number;     // total trip minutes
   stoplight: Stoplight;
-  best: boolean;
   segments: Segment[];
 };
 
@@ -135,9 +134,9 @@ function countdownStr(totalMin: number): string {
 }
 
 // Trip classification:
-//   • avoid (red)   = 3h+ door-to-door, regardless of layover
-//   • doable (amber)= short trip but tight (<20 min) Sayville transfer
-//   • breeze (green)= short trip with a comfortable (≥20 min) Sayville layover
+//   • long (red)   = 3h+ door-to-door, regardless of layover
+//   • risky (amber)= short trip but tight (<20 min) Sayville transfer
+//   • best (green) = short trip with a comfortable (≥20 min) Sayville layover
 const COMFORT_LAYOVER_MIN = 20;
 const AVOID_TOTAL_MIN = 180;
 function sl(totalMin: number, layoverMin: number): Stoplight {
@@ -146,9 +145,9 @@ function sl(totalMin: number, layoverMin: number): Stoplight {
 }
 
 function slInfo(s: Stoplight) {
-  return s === 'green' ? { bg: C.green, label: 'breeze' }
-       : s === 'amber' ? { bg: C.amber, label: 'doable' }
-       :                 { bg: C.red,   label: 'avoid'  };
+  return s === 'green' ? { bg: C.green, label: 'best'  }
+       : s === 'amber' ? { bg: C.amber, label: 'risky' }
+       :                 { bg: C.red,   label: 'long'  };
 }
 
 function todayNY(): string {
@@ -187,13 +186,6 @@ const MOCK_TO_PINES: FerryTrip[] = [
 const MOCK_TO_PENN: FerryTrip[] = [
   '09:30','11:00','12:30','14:00','15:30','17:00','18:30','20:00',
 ].map(t => ({ departureTime: t, direction: 'pines_to_sayville' as const }));
-
-function markBest(list: Itinerary[]) {
-  if (!list.length) return;
-  const minT = Math.min(...list.map(x => x.total));
-  let done = false;
-  for (const r of list) { if (!done && r.total === minT) { r.best = true; done = true; } }
-}
 
 function ferriesForDay(ferries: FerryTrip[], dow: number, dateStr?: string): FerryTrip[] {
   return ferries.filter(f => {
@@ -238,11 +230,10 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number, da
       id: ++id,
       depart: fmt(j.depart),    departRaw: j.depart.slice(0, 5),
       arrive: fmt(pinesArrRaw), arriveRaw: pinesArrRaw,
-      layover, total, stoplight: sl(total, layover), best: false,
+      layover, total, stoplight: sl(total, layover),
       segments,
     });
   }
-  markBest(result);
   return result;
 }
 
@@ -279,11 +270,10 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number, date
       id: ++id,
       depart: fmt(ferryDep),      departRaw: ferryDep,
       arrive: fmt(train.arrive),  arriveRaw: train.arrive.slice(0, 5),
-      layover, total, stoplight: sl(total, layover), best: false,
+      layover, total, stoplight: sl(total, layover),
       segments,
     });
   }
-  markBest(result);
   return result;
 }
 
@@ -734,7 +724,7 @@ function NextHero({ direction, itineraries, todayLabel }: {
   const sub = subParts.filter(Boolean).join(' → ');
   const shareText = buildShareText(direction, todayLabel, next.segments);
   const slBg    = next.stoplight === 'green' ? C.green : C.amber;
-  const slLabel = next.stoplight === 'green' ? 'breeze' : 'doable';
+  const slLabel = next.stoplight === 'green' ? 'best' : 'risky';
 
   return (
     <div style={{ margin: '2px 18px 12px', position: 'relative' }}>
@@ -799,17 +789,6 @@ function SegmentSprite({ kind, animated }: { kind: Segment['kind']; animated: bo
   return <Bus size={42} />;
 }
 
-// Disco-pick segments share a single keyframe (wf-bob) on a single duration so
-// adjacent sprites can pass each other in opposite phase. Even-index sprites
-// run at delay 0; odd-index sprites run at delay -1.5s (half the 3s cycle), so
-// when sprite N is at its leftmost, sprite N+1 is at its rightmost.
-const SEG_ANIM_DURATION = 3;
-function segmentAnimation(animated: boolean, index: number): string {
-  if (!animated) return 'none';
-  const delay = index % 2 === 0 ? '0s' : `-${SEG_ANIM_DURATION / 2}s`;
-  return `wf-bob ${SEG_ANIM_DURATION}s ease-in-out ${delay} infinite`;
-}
-
 function buildShareText(direction: 'to-pines' | 'to-penn', dateLabel: string, segments: Segment[]): string {
   const dirLabel = direction === 'to-pines' ? 'To the Pines' : 'To Penn';
   const bullets = segments.map(s => {
@@ -826,7 +805,6 @@ function ItineraryRow({ it, direction, dateLabel, dateStr }: {
   dateStr: string;
 }) {
   const { bg, label } = slInfo(it.stoplight);
-  const anim = it.best;
   const shareText = buildShareText(direction, dateLabel, it.segments);
 
   return (
@@ -868,9 +846,8 @@ function ItineraryRow({ it, direction, dateLabel, dateStr }: {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    animation: segmentAnimation(anim, i),
                   }}>
-                    <SegmentSprite kind={seg.kind} animated={anim} />
+                    <SegmentSprite kind={seg.kind} animated={false} />
                   </div>
                   {!isLast && (
                     <svg width="4" height="22" style={{ display: 'block', marginTop: 1 }}>
@@ -901,15 +878,6 @@ function ItineraryRow({ it, direction, dateLabel, dateStr }: {
           <CalendarInviteButton it={it} direction={direction} dateStr={dateStr} dateLabel={dateLabel} />
           <ShareButton text={shareText} />
         </div>
-
-        {it.best && (
-          <div style={{
-            position: 'absolute', top: -10, left: 14,
-            fontFamily: F.disco, fontSize: 12, letterSpacing: 1.5, color: C.ink, background: C.gold,
-            padding: '2px 9px 0', borderRadius: 999, border: '1.4px solid ' + C.ink,
-            boxShadow: '1.5px 2px 0 ' + C.ink, transform: 'rotate(-3deg)',
-          }}>★ DISCO PICK ★</div>
-        )}
       </div>
     </SketchBox>
   );
@@ -959,7 +927,7 @@ function FilterBar({
   sort: 'earliest' | 'latest';
   onSort: (s: 'earliest' | 'latest') => void;
 }) {
-  const QUALITY_LABEL: Record<Stoplight, string> = { green: 'breeze', amber: 'doable', red: 'avoid' };
+  const QUALITY_LABEL: Record<Stoplight, string> = { green: 'best', amber: 'risky', red: 'long' };
   const QUALITY_BG: Record<Stoplight, string> = { green: C.green, amber: C.amber, red: C.red };
 
   const segShell: CSSProperties = {
@@ -1009,7 +977,7 @@ function FilterBar({
 
 function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
   return (
-    <div style={{ padding: '6px 18px 8px', position: 'relative' }}>
+    <div style={{ padding: '16px 18px 10px', position: 'relative' }}>
       <div style={{ fontFamily: F.disco, fontSize: 28, letterSpacing: 1.5, color: C.ink, lineHeight: 1 }}>
         GOPINES.GAY
       </div>
@@ -1017,15 +985,15 @@ function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
         onClick={onMenuOpen}
         aria-label="open menu"
         style={{
-          position: 'absolute', top: 0, right: 14,
+          position: 'absolute', top: 10, right: 14,
           border: 'none', background: 'transparent', padding: 0,
           cursor: 'pointer', borderRadius: '50%',
         }}
       >
         <Sun size={42} />
       </button>
-      <div style={{ position: 'absolute', top: 14, right: 64, pointerEvents: 'none' }}><Seagull size={18} /></div>
-      <div style={{ position: 'absolute', top: 30, right: 78, pointerEvents: 'none' }}><Seagull size={12} /></div>
+      <div style={{ position: 'absolute', top: 24, right: 64, pointerEvents: 'none' }}><Seagull size={18} /></div>
+      <div style={{ position: 'absolute', top: 40, right: 78, pointerEvents: 'none' }}><Seagull size={12} /></div>
     </div>
   );
 }
