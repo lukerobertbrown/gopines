@@ -486,9 +486,12 @@ function Sun({ size = 60, style = {}, showMenu = false }: { size?: number; style
           );
         })}
         {showMenu && <>
-          <path d="M 22 74 Q 35 71, 50 74 T 78 74" stroke={C.ink} strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.45" />
-          <path d="M 28 80 Q 39 77, 50 80 T 72 80" stroke={C.ink} strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.45" />
-          <path d="M 34 86 Q 43 83, 50 86 T 66 86" stroke={C.ink} strokeWidth="2.2" strokeLinecap="round" fill="none" opacity="0.45" />
+          <line x1="38" y1="44" x2="62" y2="44" stroke={C.ink} strokeWidth="2.5" strokeLinecap="round"
+            style={{ animation: 'sun-menu-pulse 2.4s ease-in-out infinite', animationDelay: '0s' }} />
+          <line x1="38" y1="50" x2="62" y2="50" stroke={C.ink} strokeWidth="2.5" strokeLinecap="round"
+            style={{ animation: 'sun-menu-pulse 2.4s ease-in-out infinite', animationDelay: '0.2s' }} />
+          <line x1="38" y1="56" x2="62" y2="56" stroke={C.ink} strokeWidth="2.5" strokeLinecap="round"
+            style={{ animation: 'sun-menu-pulse 2.4s ease-in-out infinite', animationDelay: '0.4s' }} />
         </>}
       </g>
     </svg>
