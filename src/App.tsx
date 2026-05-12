@@ -29,7 +29,7 @@ type SkinPalette = typeof GODASH_PALETTE;
 
 const GRANDMAS_PALETTE: SkinPalette = {
   ...GODASH_PALETTE,
-  ocean: '#2A0B05', // warm DoorDash-dark — replaces midnight blue for the to-penn hero
+  ocean: '#7B1F0D', // warm DoorDash dark-red — dark enough for white text, light enough for ferry to read
   pink:  '#FFC8B6', // peachier so it pops against the warmer dark hero
 };
 
@@ -85,7 +85,7 @@ const SKINS: Skin[] = [
   { id: 'godash-may26', label: "DoorDash - May'26", palette: GODASH_PALETTE },
   {
     id: 'grandmas',
-    label: 'DoorDash Grandmas',
+    label: "May'26: DoorDash Grandmas",
     palette: GRANDMAS_PALETTE,
     copy: {
       wordmark: 'SPONSORED BY DOORDASH GRANDMAS OF 512 FISHERMANS',
