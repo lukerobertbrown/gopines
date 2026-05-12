@@ -151,6 +151,7 @@ type Journey = {
   transferAt: string | null;
   legs: Leg[];
   maxDelayMin?: number;
+  canceled?: boolean;
 };
 
 type DayBlock = {
@@ -345,6 +346,7 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number, da
   let id = 0;
   const result: Itinerary[] = [];
   for (const j of outbound) {
+    if (j.canceled) continue;
     const sayArr = j.arrive.slice(0, 5);
     const thresh = toMin(sayArr) + WALK_MIN;
     const ferry = pines.find(t => toMin(t) >= thresh);
@@ -382,7 +384,7 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number, date
     .filter(f => hasPenn ? f.direction === 'pines_to_sayville' : f.direction === 'unknown')
     .map(f => f.departureTime.slice(0, 5))
     .sort();
-  const trains = [...inbound].sort((a, b) => toMin(a.depart.slice(0, 5)) - toMin(b.depart.slice(0, 5)));
+  const trains = [...inbound].filter(j => !j.canceled).sort((a, b) => toMin(a.depart.slice(0, 5)) - toMin(b.depart.slice(0, 5)));
   let id = 0;
   const result: Itinerary[] = [];
   for (const ferryDep of pennDeps) {
