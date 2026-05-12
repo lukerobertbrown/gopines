@@ -67,6 +67,7 @@ function buildTripRealtimeIndex(feed) {
     const tripId = tu.trip.tripId;
     if (!tripId) continue;
 
+    const canceled = Number(tu.trip.scheduleRelationship) === 3;
     let tripDelaySec = tu.delay != null ? numOr0(tu.delay) : 0;
 
     /** @type {Map<string, number>} */
@@ -84,10 +85,12 @@ function buildTripRealtimeIndex(feed) {
 
     const prev = map.get(tripId);
     if (!prev) {
-      map.set(tripId, { tripDelaySec, stopDelaySec });
+      map.set(tripId, { tripDelaySec, stopDelaySec, canceled });
       continue;
     }
     prev.tripDelaySec = Math.max(prev.tripDelaySec, tripDelaySec);
+    // Once canceled, always canceled.
+    if (canceled) prev.canceled = true;
     for (const [sid, sec] of stopDelaySec) {
       const p = prev.stopDelaySec.get(sid) || 0;
       prev.stopDelaySec.set(sid, Math.max(p, sec));
@@ -122,7 +125,13 @@ function mergeRealtimeIntoPayload(payload, index, todayYmd) {
     for (const dir of ["outbound", "inbound"]) {
       for (const j of day[dir] || []) {
         let maxD = 0;
+        let journeyCanceled = false;
         for (const leg of j.legs || []) {
+          const row = index.get(leg.tripId);
+          if (row && row.canceled) {
+            journeyCanceled = true;
+            leg.canceled = true;
+          }
           const d = delayForLeg(index, leg.tripId, leg.fromStopId, leg.toStopId);
           if (d != null && d > 0) {
             leg.delaySec = d;
@@ -130,6 +139,7 @@ function mergeRealtimeIntoPayload(payload, index, todayYmd) {
             maxD = Math.max(maxD, d);
           }
         }
+        if (journeyCanceled) j.canceled = true;
         if (maxD > 0) {
           j.maxDelaySec = maxD;
           j.maxDelayMin = Math.round(maxD / 60);
