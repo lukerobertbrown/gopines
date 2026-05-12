@@ -1305,7 +1305,7 @@ function DiscoHeader({ onMenuOpen }: { onMenuOpen: () => void }) {
 }
 
 // ─── Menu / overlay panel ─────────────────────────────────────────────────────
-type PanelView = 'closed' | 'menu' | 'ferry' | 'about' | 'home-station' | 'skins';
+type PanelView = 'closed' | 'menu' | 'ferry' | 'about' | 'home-station' | 'skins' | 'faqs';
 
 type HomeStation = 'penn' | 'grand-central' | 'atlantic' | 'woodside';
 
@@ -1637,6 +1637,51 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
   );
 }
 
+function FaqEntry({ q, children }: { q: string; children: React.ReactNode }) {
+  const C = useTheme();
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{
+        fontFamily: F.marker, fontSize: 15, fontWeight: 700,
+        color: C.ink, marginBottom: 6, lineHeight: 1.3,
+      }}>
+        {q}
+      </div>
+      <div style={{
+        fontFamily: F.hand, fontSize: 15, color: C.ink,
+        lineHeight: 1.55, whiteSpace: 'pre-wrap',
+      }}>
+        {children}
+      </div>
+      <div style={{ borderBottom: '1px dashed ' + C.ink, opacity: 0.2, marginTop: 18 }} />
+    </div>
+  );
+}
+
+function FaqsView() {
+  const C = useTheme();
+  const skin = useSkin();
+  return (
+    <div>
+      <div style={{ ...discoFont(skin), fontSize: 22, color: C.ink, marginBottom: 18 }}>
+        FAQs
+      </div>
+      <FaqEntry q="How are trips rated green, yellow, or red?">
+        {'Every trip gets a rating based on two things: how long the whole journey takes door-to-door, and how much breathing room you have at Sayville between your train and the ferry.\n\n'}
+        <span style={{ color: C.green, fontWeight: 700 }}>Green (best)</span>
+        {' — under 3 hours total, with at least 20 minutes between your train arriving and the ferry leaving. You can walk to the dock without rushing.\n\n'}
+        <span style={{ color: C.amber, fontWeight: 700 }}>Yellow (risky)</span>
+        {' — under 3 hours total, but less than 20 minutes at Sayville. Your train and the ferry are close together — a delay could mean a missed boat.\n\n'}
+        <span style={{ color: C.red, fontWeight: 700 }}>Red (long)</span>
+        {' — the total trip is 3 hours or more, regardless of your layover. A long day either way.'}
+      </FaqEntry>
+      <FaqEntry q="Why doesn't the earliest ferry show up in my trip options?">
+        {'The app only shows complete door-to-door trips you can make by LIRR. To catch the 7:00a ferry, your train would need to reach Sayville by 6:50a — but no LIRR train departing from Penn, Grand Central, Atlantic Terminal, or Woodside at a practical hour arrives that early. The Montauk Branch simply doesn\'t have that morning service.\n\nThe 7:00a ferry is real and visible in the Ferry Schedule tab. It\'s just only reachable if you drive or are already out east.'}
+      </FaqEntry>
+    </div>
+  );
+}
+
 function AboutView() {
   const C = useTheme();
   const skin = useSkin();
@@ -1885,12 +1930,14 @@ function MenuPanel({
             <MenuLink label="Ferry Schedule" onClick={() => setView('ferry')} />
             <MenuLink label="Home Station"   onClick={() => setView('home-station')} />
             <MenuLink label="Skins"          onClick={() => setView('skins')} />
+            <MenuLink label="FAQs"           onClick={() => setView('faqs')} />
             <MenuLink label="About"          onClick={() => setView('about')} />
           </div>
         )}
         {view === 'ferry'        && <FerryScheduleView ferryData={ferryData} ferryMock={ferryMock} />}
         {view === 'home-station' && <HomeStationView selected={homeStation} onSelect={s => { setHomeStation(s); }} />}
         {view === 'about'        && <AboutView />}
+        {view === 'faqs'         && <FaqsView />}
         {view === 'skins'        && <SkinsView skins={skins} activeSkinId={activeSkinId} onSelect={onSkinSelect} />}
       </div>
     </div>
