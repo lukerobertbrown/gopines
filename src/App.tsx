@@ -260,15 +260,35 @@ function track(name: string, params: TrackPayload) {
   try { window.gtag?.('event', name, params); } catch (_) { /* swallow */ }
 }
 
+// Cached Sentry feedback dialog. createForm() is async and expensive; we
+// only want one dialog instance, re-appended to the Shadow DOM each click.
+// Cleared on submit so the next click gets a fresh form.
+let _feedbackDialog: Awaited<ReturnType<NonNullable<ReturnType<typeof Sentry.getFeedback>>["createForm"]>> | null = null;
+
 async function reportBug(opts: { type: string; title?: string; details?: Record<string, unknown> }) {
-  Sentry.setTag('bug_context', opts.type);
-  if (opts.title) Sentry.setTag('bug_title', opts.title.slice(0, 200));
-  if (opts.details) Sentry.setContext('bug_details', opts.details);
-  const feedback = Sentry.getFeedback();
-  if (!feedback) return;
-  const form = await feedback.createForm();
-  form.appendToDom();
-  form.open();
+  try {
+    Sentry.setTag('bug_context', opts.type);
+    if (opts.title) Sentry.setTag('bug_title', opts.title.slice(0, 200));
+    if (opts.details) Sentry.setContext('bug_details', opts.details);
+
+    const feedback = Sentry.getFeedback();
+    if (!feedback) {
+      console.warn('Sentry feedback integration not available — check VITE_SENTRY_DSN and Sentry.init integrations.');
+      return;
+    }
+    if (!_feedbackDialog) {
+      _feedbackDialog = await feedback.createForm({
+        onFormSubmitted: () => {
+          _feedbackDialog?.removeFromDom();
+          _feedbackDialog = null;
+        },
+      });
+    }
+    _feedbackDialog.appendToDom();
+    _feedbackDialog.open();
+  } catch (err) {
+    console.error('Failed to open bug-report dialog:', err);
+  }
 }
 
 // Hero countdown: "Xm" if under an hour, "Xh Ym" between 1–2h, "~Xh"
