@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext, createContext, type CSSProperties, type ReactNode, type MouseEvent } from "react";
+import * as Sentry from "@sentry/react";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 // Palette ported from the GoDash design (DoorDash-styled re-skin). `coral` and
@@ -257,6 +258,17 @@ type TrackPayload = {
 
 function track(name: string, params: TrackPayload) {
   try { window.gtag?.('event', name, params); } catch (_) { /* swallow */ }
+}
+
+async function reportBug(opts: { type: string; title?: string; details?: Record<string, unknown> }) {
+  Sentry.setTag('bug_context', opts.type);
+  if (opts.title) Sentry.setTag('bug_title', opts.title.slice(0, 200));
+  if (opts.details) Sentry.setContext('bug_details', opts.details);
+  const feedback = Sentry.getFeedback();
+  if (!feedback) return;
+  const form = await feedback.createForm();
+  form.appendToDom();
+  form.open();
 }
 
 // Hero countdown: "Xm" if under an hour, "Xh Ym" between 1–2h, "~Xh"
@@ -850,14 +862,24 @@ function BugButton({ it, direction, dateLabel, dateStr }: {
   const onClick = (e: MouseEvent) => {
     e.stopPropagation();
     const dirLabel = direction === 'to-pines' ? 'To the Pines' : 'From the Pines';
-    const bullets = it.segments.map(s => {
-      const tail = s.name ? ` (${s.name})` : '';
-      return `- ${s.time} — ${s.fromTo}${tail}`;
-    }).join('\n');
-    const body = `**Direction:** ${dirLabel}\n**Date:** ${dateLabel}\n**Trip:** ${it.depart} → ${it.arrive}\n\n**Segments:**\n${bullets}`;
-    const title = `[Trip Error] ${dirLabel} ${dateLabel} ${it.depart}→${it.arrive}`;
-    const url = `https://github.com/lukerobertbrown/gopines/issues/new?template=trip_error.md&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const segments = it.segments.map(s => ({
+      time: s.time,
+      fromTo: s.fromTo,
+      name: s.name,
+    }));
+    reportBug({
+      type: 'trip',
+      title: `[Trip Error] ${dirLabel} ${dateLabel} ${it.depart}→${it.arrive}`,
+      details: {
+        direction: dirLabel,
+        date: dateLabel,
+        dateStr,
+        depart: it.depart,
+        arrive: it.arrive,
+        stoplight: it.stoplight,
+        segments,
+      },
+    });
     track('report_trip_error', {
       direction,
       trip_date: dateStr,
@@ -1546,12 +1568,19 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
           const dirLabel = tab === 'to-pines' ? 'To Pines' : 'To Sayville';
           const onFerryBug = (e: MouseEvent) => {
             e.stopPropagation();
-            const timeLines = d.trips.map(t => `- ${fmt(t.departureTime)}${t.extraStops ? ' ▲' : ''}`).join('\n');
-            const sourceLine = ferryData?.sourcePageUrl ? `\n**Source:** ${ferryData.sourcePageUrl}` : '';
-            const body = `**Direction:** ${dirLabel}\n**Day:** ${d.label}\n**Schedule:** ${title}${dateRange ? `\n**Effective:** ${dateRange}` : ''}${sourceLine}\n\n**Times shown:**\n${timeLines}`;
-            const issueTitle = `[Ferry Error] ${dirLabel} – ${d.label}`;
-            const url = `https://github.com/lukerobertbrown/gopines/issues/new?template=ferry_schedule_error.md&title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(body)}`;
-            window.open(url, '_blank', 'noopener,noreferrer');
+            const times = d.trips.map(t => `${fmt(t.departureTime)}${t.extraStops ? ' ▲' : ''}`);
+            reportBug({
+              type: 'ferry-day',
+              title: `[Ferry Error] ${dirLabel} – ${d.label}`,
+              details: {
+                direction: dirLabel,
+                day: d.label,
+                schedule: title,
+                effective: dateRange || null,
+                source: ferryData?.sourcePageUrl || null,
+                times,
+              },
+            });
             track('report_ferry_error', { direction: tab, day: d.label });
           };
           return (
@@ -1776,10 +1805,10 @@ function HomeStationView({
         </button>
       ))}
       <button
-        onClick={() => window.open(
-          'https://github.com/lukerobertbrown/gopines/issues/new?template=station_request.md&title=[Station+Request]+',
-          '_blank', 'noopener,noreferrer'
-        )}
+        onClick={() => reportBug({
+          type: 'station-request',
+          title: '[Station Request]',
+        })}
         style={{
           display: 'block', width: '100%', marginTop: 20,
           padding: '12px 0', textAlign: 'center',
@@ -2129,12 +2158,18 @@ export function App() {
       </div>
       <div style={{ textAlign: 'center', paddingBottom: 24 }}>
         <a
-          href={`https://github.com/lukerobertbrown/gopines/issues/new?template=bug_report.md&title=[Bug]+&body=${encodeURIComponent(
-            `**Date selected:** ${dates[dateIdx]?.dateStr ?? 'unknown'}\n**Direction:** ${direction}\n**Browser:** ${navigator.userAgent}\n\n---\n\n`
-          )}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontFamily: F.hand, fontSize: 13, color: '#9b958c', textDecoration: 'underline' }}
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            reportBug({
+              type: 'general',
+              details: {
+                date: dates[dateIdx]?.dateStr ?? 'unknown',
+                direction,
+              },
+            });
+          }}
+          style={{ fontFamily: F.hand, fontSize: 13, color: '#9b958c', textDecoration: 'underline', cursor: 'pointer' }}
         >
           report a bug
         </a>
