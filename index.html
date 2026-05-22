@@ -29,6 +29,23 @@
         0%, 25%, 100% { opacity: 1; }
         12.5%         { opacity: 0.25; }
       }
+      /* Bianchi: polaroid camera flash bulb — pulses to yellow every 7.5s */
+      @keyframes bianchi-flash {
+        0%, 94%, 100% { fill: #FFFFFF; }
+        95%           { fill: #FFC60A; }
+        96%, 97%      { fill: #FFF6CC; }
+      }
+      .cam-bulb { animation: bianchi-flash 7.5s ease-in-out infinite; }
+      /* Bianchi: disco-ball twinkle (one fade in/out per ~7s, staggered per pill) */
+      @keyframes bianchi-twinkle {
+        0%, 88%, 100% { opacity: 0; }
+        92%           { opacity: 0.95; }
+        96%           { opacity: 0; }
+      }
+      .bianchi-twinkle { animation: bianchi-twinkle 7s ease-out infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        .cam-bulb, .bianchi-twinkle { animation: none; }
+      }
     </style>
   </head>
   <body>

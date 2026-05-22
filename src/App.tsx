@@ -34,6 +34,23 @@ const GRANDMAS_PALETTE: SkinPalette = {
   pink:  '#FFC8B6', // peachier so it pops against the warmer dark hero
 };
 
+// Bianchi — washed beach pastels. Tom Bianchi Polaroid hook.
+const BIANCHI_PALETTE: SkinPalette = {
+  sand:  '#FBF5EC', // warm cream, lighter & less yellow
+  paper: '#FFFFFF', // unchanged
+  ink:   '#3F3742', // washed plum-charcoal — never pure black
+  ocean: '#B6CDDA', // washed sky blue — to-penn hero + ferry hull
+  deep:  '#8FA8B6', // periwinkle haze — toggle home indicator
+  coral: '#F2B8C2', // pastel dusty rose — primary accent + to-pines hero
+  gold:  '#F2B8C2', // alias of coral
+  pink:  '#F8D2D8', // pale baby pink — ferry pennant
+  red:   '#C92033', // stoplight stays unchanged
+  amber: '#F2BB05',
+  green: '#00854D',
+  mint:  '#DCE6E0', // washed seafoam — bus body
+  yellow:'#F6E0A2', // sun-bleached butter — sun, sparkle
+} as const;
+
 type SkinCopy = {
   wordmark: string;
   heroToPines: string;
@@ -42,6 +59,8 @@ type SkinCopy = {
   emptyToPenn: string;
   stoplight: Record<'green' | 'amber' | 'red', string>;
   todayLabel: string;
+  toggleToPines: string;
+  toggleToPenn: string;
 };
 
 type Skin = {
@@ -61,6 +80,12 @@ type Skin = {
     busRoofRack?: boolean;
     wordmarkSize?: number;
     wordmarkWrap?: boolean;
+    // Bianchi-specific feature flags
+    polaroidCameraMenu?: boolean;  // replace Sun with polaroid camera
+    prideStripeSprites?: boolean;  // train/bus/ferry get a 6-stripe pride flag overlay
+    polaroidCards?: boolean;       // wrap ItineraryRow in polaroid frame + caption strip
+    discoBallWeekend?: boolean;    // Fri/Sat date pills get faceted disco-ball treatment
+    heroTextInk?: boolean;         // hero text uses ink instead of white (pastel hero needs)
   };
 };
 
@@ -72,6 +97,8 @@ const FALLBACK_COPY: SkinCopy = {
   emptyToPenn:  'No more ferries today — see you next time!',
   stoplight: { green: 'best', amber: 'risky', red: 'long' },
   todayLabel: 'today',
+  toggleToPines: 'To the Pines',
+  toggleToPenn:  'From the Pines',
 };
 
 function skinCopy(s: Skin): SkinCopy {
@@ -109,6 +136,25 @@ const SKINS: Skin[] = [
       busRoofRack: true,
       wordmarkSize: 16,
       wordmarkWrap: true,
+    },
+  },
+  {
+    id: 'bianchi',
+    label: 'Bianchi',
+    palette: BIANCHI_PALETTE,
+    copy: {
+      // wordmark stays GOPINES.GAY (default)
+      heroToPines: 'NEXT TRAIN DEPARTS',
+      heroToPenn:  'NEXT FERRY DEPARTS',
+      // empty + stoplight + today all default-fine
+      toggleToPenn: 'To the City',
+    },
+    features: {
+      polaroidCameraMenu: true,
+      prideStripeSprites: true,
+      polaroidCards:      true,
+      discoBallWeekend:   true,
+      heroTextInk:        true,
     },
   },
 ];
@@ -494,6 +540,25 @@ function Seagull({ size = 18, color = C.ink, style = {} }: { size?: number; colo
   );
 }
 
+// Pride flag stripe overlay used by Bianchi sprites. Saturated, NOT pastel —
+// the stripes are the one place in the skin that breaks the washed palette.
+// Six stripes evenly divided across (y..y+h). Final outline rect stays on top
+// so the rainbow reads as inside a window/flag frame, not a raw block.
+const PRIDE_STRIPES = ['#E40303', '#FF8C00', '#FFED00', '#008026', '#004DFF', '#750787'] as const;
+function PrideStripes({ x, y, w, h, rx = 1.5, inkStroke }: {
+  x: number; y: number; w: number; h: number; rx?: number; inkStroke: string;
+}) {
+  const stripeH = h / 6;
+  return (
+    <>
+      {PRIDE_STRIPES.map((color, i) => (
+        <rect key={i} x={x} y={y + i * stripeH} width={w} height={stripeH} fill={color} />
+      ))}
+      <rect x={x} y={y} width={w} height={h} rx={rx} fill="none" stroke={inkStroke} strokeWidth="1.2" />
+    </>
+  );
+}
+
 function Sparkle({ size = 14, style = {} }: { size?: number; style?: CSSProperties }) {
   const C = useTheme();
   return (
@@ -506,6 +571,36 @@ function Sparkle({ size = 14, style = {} }: { size?: number; style?: CSSProperti
 
 function Sun({ size = 60, style = {}, showMenu = false }: { size?: number; style?: CSSProperties; showMenu?: boolean }) {
   const C = useTheme();
+  const skin = useSkin();
+  // Bianchi: replace the sun entirely with a polaroid camera (SX-70-ish), with a
+  // single-rect flash bulb that pulses to yellow every 7.5s. Same size + click area.
+  if (skin.features?.polaroidCameraMenu) {
+    return (
+      <svg width={size} height={size * (48 / 64)} viewBox="0 0 64 48" style={style}>
+        <g filter="url(#wobble)">
+          {/* viewfinder hood on top */}
+          <path d="M14 14 L14 8 Q14 6 16 6 L48 6 Q50 6 50 8 L50 14 Z"
+            fill={C.paper} stroke={C.ink} strokeWidth="1.4" />
+          <rect x="40" y="8" width="7" height="4" rx="0.5" fill={C.ink} />
+          <line x1="17" y1="11" x2="33" y2="11" stroke={C.ink} strokeWidth="0.7" />
+          {/* camera body */}
+          <rect x="6" y="14" width="52" height="28" rx="3"
+            fill={C.paper} stroke={C.ink} strokeWidth="1.6" />
+          {/* lens */}
+          <circle cx="22" cy="28" r="8" fill={C.paper} stroke={C.ink} strokeWidth="1.4" />
+          <circle cx="22" cy="28" r="5.4" fill={C.ink} />
+          <circle cx="20.4" cy="26.6" r="1.4" fill={C.paper} opacity="0.85" />
+          {/* flash bulb — pulses */}
+          <rect className="cam-bulb" x="44" y="18" width="8" height="5" rx="0.8"
+            fill={C.paper} stroke={C.ink} strokeWidth="1" />
+          <line x1="44" y1="20.5" x2="52" y2="20.5" stroke={C.ink} strokeWidth="0.4" />
+          {/* shutter button */}
+          <rect x="36" y="16" width="4" height="2.6" rx="0.6"
+            fill={C.coral} stroke={C.ink} strokeWidth="0.8" />
+        </g>
+      </svg>
+    );
+  }
   return (
     <svg width={size} height={size} viewBox="0 0 100 100" style={style}>
       <g filter="url(#wobble)">
@@ -543,6 +638,7 @@ function Wave({ width = 80, color = C.ocean, style = {} }: { width?: number; col
 
 function Train({ size = 52, puff = false, style = {} }: { size?: number; puff?: boolean; style?: CSSProperties }) {
   const C = useTheme();
+  const skin = useSkin();
   return (
     <svg width={size} height={size * 0.62} viewBox="0 0 100 62" style={style}>
       {puff && (
@@ -556,7 +652,12 @@ function Train({ size = 52, puff = false, style = {} }: { size?: number; puff?: 
         <rect x="22" y="22" width="60" height="24" rx="4" fill={C.coral} stroke={C.ink} strokeWidth="1.6" />
         <path d="M82 22 L92 22 L92 46 L82 46 Z" fill={C.gold} stroke={C.ink} strokeWidth="1.6" />
         <rect x="28" y="26" width="10" height="10" rx="1.5" fill={C.paper} stroke={C.ink} strokeWidth="1.2" />
-        <rect x="42" y="26" width="10" height="10" rx="1.5" fill={C.paper} stroke={C.ink} strokeWidth="1.2" />
+        {/* Middle window: pride flag for Bianchi, paper otherwise */}
+        {skin.features?.prideStripeSprites ? (
+          <PrideStripes x={42} y={26} w={10} h={10} inkStroke={C.ink} />
+        ) : (
+          <rect x="42" y="26" width="10" height="10" rx="1.5" fill={C.paper} stroke={C.ink} strokeWidth="1.2" />
+        )}
         <rect x="56" y="26" width="10" height="10" rx="1.5" fill={C.paper} stroke={C.ink} strokeWidth="1.2" />
         <line x1="22" y1="40" x2="82" y2="40" stroke={C.ink} strokeWidth="1.2" />
         <circle cx="34" cy="50" r="6" fill={C.ink} /><circle cx="34" cy="50" r="2" fill={C.paper} />
@@ -570,6 +671,7 @@ function Train({ size = 52, puff = false, style = {} }: { size?: number; puff?: 
 
 function Ferry({ size = 60, wakes = false, style = {} }: { size?: number; wakes?: boolean; style?: CSSProperties }) {
   const C = useTheme();
+  const skin = useSkin();
   return (
     <svg width={size} height={size * 0.7} viewBox="0 0 100 70" style={style}>
       <g filter="url(#wobble)">
@@ -579,7 +681,12 @@ function Ferry({ size = 60, wakes = false, style = {} }: { size?: number; wakes?
         <rect x="40" y="32" width="8" height="8" fill={C.ocean} stroke={C.ink} strokeWidth="1" />
         <rect x="52" y="32" width="8" height="8" fill={C.ocean} stroke={C.ink} strokeWidth="1" />
         <rect x="64" y="32" width="8" height="8" fill={C.ocean} stroke={C.ink} strokeWidth="1" />
-        <rect x="42" y="14" width="22" height="14" fill={C.coral} stroke={C.ink} strokeWidth="1.6" />
+        {/* Cabin-top flag: pride for Bianchi, coral pennant otherwise */}
+        {skin.features?.prideStripeSprites ? (
+          <PrideStripes x={42} y={14} w={22} h={14} rx={0} inkStroke={C.ink} />
+        ) : (
+          <rect x="42" y="14" width="22" height="14" fill={C.coral} stroke={C.ink} strokeWidth="1.6" />
+        )}
         <line x1="54" y1="14" x2="54" y2="4" stroke={C.ink} strokeWidth="1.4" />
         <path d="M54 4 L62 7 L54 10 Z" fill={C.pink} stroke={C.ink} strokeWidth="1.2" />
         <rect x="32" y="10" width="6" height="18" fill={C.gold} stroke={C.ink} strokeWidth="1.4" />
@@ -624,10 +731,14 @@ function Bus({ size = 44, style = {} }: { size?: number; style?: CSSProperties }
         )}
         {/* roof line */}
         <line x1="10" y1="24" x2="86" y2="24" stroke={C.ink} strokeWidth="1.2" />
-        {/* windows */}
+        {/* windows — third window is pride flag for Bianchi */}
         <rect x="14" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
         <rect x="30" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
-        <rect x="46" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
+        {skin.features?.prideStripeSprites ? (
+          <PrideStripes x={46} y={26} w={12} h={10} inkStroke={C.ink} />
+        ) : (
+          <rect x="46" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
+        )}
         <rect x="62" y="26" width="12" height="10" rx="1.2" fill={C.paper} stroke={C.ink} strokeWidth="1" />
         {/* door */}
         <rect x="78" y="26" width="6" height="18" fill={C.paper} stroke={C.ink} strokeWidth="1" />
@@ -942,7 +1053,10 @@ function DirectionToggle({ value, onChange }: {
   value: 'to-pines' | 'to-penn'; onChange: (v: 'to-pines' | 'to-penn') => void;
 }) {
   const C = useTheme();
+  const skin = useSkin();
+  const copy = skinCopy(skin);
   const isPines = value === 'to-pines';
+  const onColor = skin.features?.heroTextInk ? C.ink : '#fff';
   return (
     <SketchBox color={C.ink} fill={C.paper} radius={28} sw={1.6} pad={2} style={{ margin: '0 18px' }}>
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center', height: 56 }}>
@@ -962,14 +1076,14 @@ function DirectionToggle({ value, onChange }: {
                 flex: 1, border: 'none', background: 'transparent', cursor: 'pointer',
                 padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 8,
                 justifyContent: 'center', fontFamily: F.marker, fontSize: 16,
-                color: on ? '#fff' : '#9b958c', letterSpacing: 0.4,
+                color: on ? onColor : '#9b958c', letterSpacing: 0.4,
                 transition: 'color .2s ease',
               }}>
                 <span style={{ filter: on ? 'none' : 'grayscale(0.4) opacity(0.8)', transition: 'filter .2s ease' }}>
                   {k === 'to-pines' ? <BeachSketch size={26} /> : <SkylineSketch size={26} />}
                 </span>
                 <span style={{ whiteSpace: 'nowrap' }}>
-                  {k === 'to-pines' ? 'To the Pines' : 'From the Pines'}
+                  {k === 'to-pines' ? copy.toggleToPines : copy.toggleToPenn}
                 </span>
               </button>
             );
@@ -993,12 +1107,14 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
   const toPines = direction === 'to-pines';
   const nowM = toMin(nowNY());
   const next = itineraries.find(it => toMin(it.departRaw) > nowM) ?? itineraries[0];
+  // Pastel hero (Bianchi) needs ink text; saturated hero (default/Grandmas) needs white.
+  const heroFg = skin.features?.heroTextInk ? C.ink : '#FFFFFF';
 
   if (!next) {
     return (
       <div style={{ margin: '2px 18px 12px' }}>
         <SketchBox color={C.ink} fill={toPines ? C.gold : C.ocean} radius={20} sw={1.8} pad={14}>
-          <div style={{ fontFamily: F.hand, color: '#FFFFFF', fontSize: 15 }}>
+          <div style={{ fontFamily: F.hand, color: heroFg, fontSize: 15 }}>
             {toPines ? copy.emptyToPines : copy.emptyToPenn}
           </div>
         </SketchBox>
@@ -1029,10 +1145,10 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
 
           {/* Top row: title + countdown on the left, stoplight chip on the right */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-            <div style={{ fontFamily: F.hand, fontSize: 15, color: '#FFFFFF', letterSpacing: 0.3, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: F.hand, fontSize: 15, color: heroFg, letterSpacing: 0.3, lineHeight: 1.2, flex: 1, minWidth: 0 }}>
               {title}
               {showCountdown && (
-                <span style={{ fontFamily: F.marker, color: '#FFFFFF' }}>
+                <span style={{ fontFamily: F.marker, color: heroFg }}>
                   {' · in '}{countdownStr(diffMin)}
                 </span>
               )}
@@ -1055,12 +1171,12 @@ function NextHero({ direction, itineraries, todayLabel, todayStr, originLabel }:
           </div>
 
           {/* Big disco time */}
-          <div style={{ ...discoFont(skin), fontSize: 34, color: '#FFFFFF', lineHeight: 1, marginTop: 6 }}>
+          <div style={{ ...discoFont(skin), fontSize: 34, color: heroFg, lineHeight: 1, marginTop: 6 }}>
             {next.depart.toUpperCase()}
           </div>
 
           {/* Subtitle (route summary) */}
-          <div style={{ fontFamily: F.hand, fontSize: 14, marginTop: 4, color: '#FFFFFF', lineHeight: 1.25, maxWidth: 'calc(100% - 80px)' }}>
+          <div style={{ fontFamily: F.hand, fontSize: 14, marginTop: 4, color: heroFg, lineHeight: 1.25, maxWidth: 'calc(100% - 80px)' }}>
             {sub}
           </div>
 
@@ -1114,13 +1230,13 @@ function ItineraryRow({ it, direction, dateLabel, dateStr, originLabel }: {
   const skin = useSkin();
   const { bg, label } = slInfo(it.stoplight, skinCopy(skin).stoplight);
   const shareText = buildShareText(direction, dateLabel, it.segments);
+  const isPolaroid = !!skin.features?.polaroidCards;
 
-  return (
-    <SketchBox color={C.ink} fill={C.paper} radius={18} sw={1.6} pad={0}
-      style={{ margin: '0 18px 12px', position: 'relative' }}>
-      <div style={{ padding: '10px 14px 14px' }}>
-
-        {/* Header: times + stoplight + duration */}
+  // Header + timeline; this is the "photo region" content for polaroid, or the
+  // top-of-card content for the classic SketchBox.
+  const photoContent = (
+    <>
+      {/* Header: times + stoplight + duration */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div style={{ fontFamily: F.marker, fontSize: 20, color: C.ink, letterSpacing: 0.4 }}>
             {it.depart}
@@ -1182,26 +1298,137 @@ function ItineraryRow({ it, direction, dateLabel, dateStr, originLabel }: {
           })}
         </div>
 
+    </>
+  );
+
+  // Action triplet: bug (left) + calendar + share (right). Shared between
+  // classic action-row and polaroid caption-strip layouts.
+  const bugBtn = <BugButton it={it} direction={direction} dateLabel={dateLabel} dateStr={dateStr} />;
+  const calBtn = <CalendarInviteButton it={it} direction={direction} dateStr={dateStr} dateLabel={dateLabel} originLabel={originLabel} />;
+  const shareBtn = (
+    <ShareButton
+      text={shareText}
+      trackPayload={{
+        direction,
+        trip_date: dateStr,
+        depart_time: it.departRaw,
+        total_min: it.total,
+        stoplight: it.stoplight,
+        surface: 'card',
+      }}
+    />
+  );
+
+  if (isPolaroid) {
+    // Polaroid layout: outer paper frame (radius 6, ~square), inner sand "photo"
+    // (radius 4), then a 56px caption strip below carrying the actions + date.
+    const captionDate = dateLabel.replace(/,\s*\d{4}$/, '').replace(/^([A-Za-z]+),\s*/, '$1 ');
+    return (
+      <div style={{ margin: '0 18px 12px', position: 'relative' }}>
+        <SketchBox color={C.ink} fill={C.paper} radius={6} sw={1.6} pad={0}>
+          <div style={{ padding: '12px 12px 0 12px' }}>
+            <SketchBox color={C.ink} fill={C.sand} radius={4} sw={1.4} pad={0}>
+              <div style={{ padding: '10px 14px 14px' }}>
+                {photoContent}
+              </div>
+            </SketchBox>
+          </div>
+          {/* Caption strip: bug (left) · date (center, Kalam 13) · ADD/SHARE (right) */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '8px 10px 12px 10px', minHeight: 32,
+          }}>
+            <div style={{ flex: '0 0 auto' }}>{bugBtn}</div>
+            <div style={{
+              flex: 1, minWidth: 0,
+              fontFamily: F.marker, fontSize: 13, color: C.ink,
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              textAlign: 'center', letterSpacing: 0.2,
+            }}>
+              {captionDate}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flex: '0 0 auto' }}>
+              {calBtn}
+              {shareBtn}
+            </div>
+          </div>
+        </SketchBox>
+      </div>
+    );
+  }
+
+  // Classic layout (godash + grandmas).
+  return (
+    <SketchBox color={C.ink} fill={C.paper} radius={18} sw={1.6} pad={0}
+      style={{ margin: '0 18px 12px', position: 'relative' }}>
+      <div style={{ padding: '10px 14px 14px' }}>
+        {photoContent}
         {/* Action row: bug report + calendar invite + share */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-          <BugButton it={it} direction={direction} dateLabel={dateLabel} dateStr={dateStr} />
+          {bugBtn}
           <div style={{ display: 'flex', gap: 6 }}>
-          <CalendarInviteButton it={it} direction={direction} dateStr={dateStr} dateLabel={dateLabel} originLabel={originLabel} />
-          <ShareButton
-            text={shareText}
-            trackPayload={{
-              direction,
-              trip_date: dateStr,
-              depart_time: it.departRaw,
-              total_min: it.total,
-              stoplight: it.stoplight,
-              surface: 'card',
-            }}
-          />
+            {calBtn}
+            {shareBtn}
           </div>
         </div>
       </div>
     </SketchBox>
+  );
+}
+
+// Faceted disco-ball facets for Bianchi weekend pills. 8 latitude rows; row width
+// + tick count scale by cos(phi). Stroke 0.4, opacity 0.55, behind the pill.
+function DiscoFacets({ inkStroke }: { inkStroke: string }) {
+  const W = 52, H = 44, cx = W / 2, cy = H / 2;
+  const rx = W / 2 - 2.5, ry = H / 2 - 2.5;
+  const rows = 8;
+  const facets: React.ReactNode[] = [];
+  for (let i = 0; i < rows; i++) {
+    const phi  = ((i + 0.5) / rows) * Math.PI - Math.PI / 2;
+    const cosP = Math.cos(phi);
+    const y    = cy + ry * Math.sin(phi);
+    const rowW = (W - 5) * cosP;
+    const arch = 0.6 * cosP;
+    const x0   = cx - rowW / 2;
+    const x1   = cx + rowW / 2;
+    const rowH = (ry * Math.PI) / rows;
+    // latitude arched line
+    facets.push(
+      <path key={`lat-${i}`}
+        d={`M ${x0} ${y} Q ${cx} ${y - arch} ${x1} ${y}`}
+        stroke={inkStroke} strokeWidth="0.4" fill="none" />
+    );
+    // vertical tile-edge ticks
+    const ticks = Math.max(3, Math.round(11 * cosP));
+    for (let t = 0; t < ticks; t++) {
+      const xt = x0 + (rowW * (t + 0.5)) / ticks;
+      const yMid = y - arch * Math.sin((Math.PI * (t + 0.5)) / ticks);
+      const tH = rowH * 0.78;
+      facets.push(
+        <line key={`tick-${i}-${t}`}
+          x1={xt} y1={yMid - tH / 2} x2={xt} y2={yMid + tH / 2}
+          stroke={inkStroke} strokeWidth="0.4" />
+      );
+    }
+  }
+  return (
+    <svg width="100%" height="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+      style={{ position: 'absolute', inset: 0, opacity: 0.55, pointerEvents: 'none', borderRadius: 'inherit', overflow: 'hidden' }}
+      filter="url(#wobble)">
+      {facets}
+    </svg>
+  );
+}
+
+// Hanging rail + string + clasp above a disco pill.
+function DiscoString({ inkStroke, paper }: { inkStroke: string; paper: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14"
+      style={{ position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none' }}>
+      <line x1="2"  y1="1.5" x2="12" y2="1.5" stroke={inkStroke} strokeWidth="0.9" strokeLinecap="round" />
+      <line x1="7"  y1="1.5" x2="7"  y2="11"  stroke={inkStroke} strokeWidth="0.7" />
+      <rect x="5.6" y="10.5" width="2.8" height="1.6" fill={paper} stroke={inkStroke} strokeWidth="0.5" />
+    </svg>
   );
 }
 
@@ -1211,26 +1438,46 @@ function DatePickerStrip({ value, onChange, dates }: {
   dates: ReturnType<typeof rollingDates>;
 }) {
   const C = useTheme();
-  const todayLabel = skinCopy(useSkin()).todayLabel;
+  const skin = useSkin();
+  const todayLabel = skinCopy(skin).todayLabel;
+  const isDisco = !!skin.features?.discoBallWeekend;
+  const inkOnActive = !!skin.features?.heroTextInk; // pastel coral needs ink, not white
   return (
-    <div style={{ margin: '6px 0 10px' }}>
+    <div style={{ margin: isDisco ? '18px 0 10px' : '6px 0 10px' }}>
       <div style={{ overflowX: 'auto', padding: '4px 18px 8px' }}>
         <div style={{ display: 'flex', gap: 8, paddingBottom: 4 }}>
           {dates.map(d => {
             const on = value === d.i;
+            const isDiscoPill = isDisco && d.weekend;
+            const twinkleDelay = `${(d.i * 1.7) % 7}s`; // deterministic stagger
             return (
               <button key={d.i} onClick={() => onChange(d.i)} style={{
                 flex: '0 0 auto', width: 52, padding: '8px 0',
                 border: '1.6px solid ' + C.ink, borderRadius: 999,
                 background: on ? C.coral : (d.weekend ? C.paper : '#fff'),
-                color: on ? '#fff' : C.ink,
+                color: on ? (inkOnActive ? C.ink : '#fff') : C.ink,
                 boxShadow: on ? '2px 3px 0 ' + C.ink : '1.5px 2px 0 ' + C.ink,
                 cursor: 'pointer', position: 'relative',
                 transform: on ? 'translate(-1px,-1px)' : 'none',
+                overflow: isDiscoPill ? 'visible' : 'hidden',
               }}>
-                <div style={{ fontFamily: F.hand, fontSize: 13, opacity: 0.8 }}>{d.today ? todayLabel : d.dow}</div>
-                <div style={{ fontFamily: F.marker, fontSize: 18, lineHeight: 1, letterSpacing: 0.5 }}>{d.dom}</div>
-                {d.weekend && !on && (
+                {isDiscoPill && <DiscoFacets inkStroke={C.ink} />}
+                {isDiscoPill && <DiscoString inkStroke={C.ink} paper={C.paper} />}
+                {isDiscoPill && (
+                  <span className="bianchi-twinkle"
+                    style={{
+                      position: 'absolute',
+                      top: `${20 + ((d.i * 13) % 14)}%`,
+                      left: `${28 + ((d.i * 23) % 44)}%`,
+                      width: 5, height: 5, borderRadius: 999,
+                      background: '#fff', boxShadow: '0 0 5px 1.5px #fff',
+                      pointerEvents: 'none',
+                      animationDelay: twinkleDelay,
+                    }} />
+                )}
+                <div style={{ fontFamily: F.hand, fontSize: 13, opacity: 0.8, position: 'relative', zIndex: 1 }}>{d.today ? todayLabel : d.dow}</div>
+                <div style={{ fontFamily: F.marker, fontSize: 18, lineHeight: 1, letterSpacing: 0.5, position: 'relative', zIndex: 1 }}>{d.dom}</div>
+                {d.weekend && !on && !isDiscoPill && (
                   <span style={{ position: 'absolute', top: -6, right: -4 }}><Sparkle size={12} /></span>
                 )}
               </button>
