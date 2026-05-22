@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, createContext, type CSSProperties, type ReactNode, type MouseEvent } from "react";
+import { useState, useEffect, useContext, useRef, createContext, type CSSProperties, type ReactNode, type MouseEvent } from "react";
 import * as Sentry from "@sentry/react";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -86,6 +86,7 @@ type Skin = {
     polaroidCards?: boolean;       // wrap ItineraryRow in polaroid frame + caption strip
     discoBallWeekend?: boolean;    // Fri/Sat date pills get faceted disco-ball treatment
     heroTextInk?: boolean;         // hero text uses ink instead of white (pastel hero needs)
+    customToggleIcons?: boolean;   // swap BeachSketch/SkylineSketch for richer Bianchi icons
   };
 };
 
@@ -155,6 +156,7 @@ const SKINS: Skin[] = [
       polaroidCards:      true,
       discoBallWeekend:   true,
       heroTextInk:        true,
+      customToggleIcons:  true,
     },
   },
 ];
@@ -756,6 +758,114 @@ function Bus({ size = 44, style = {} }: { size?: number; style?: CSSProperties }
   );
 }
 
+// Bianchi-only: canonical pines icon from the design handoff. Sun with rays in
+// upper-right, three stylized pine trees with brown trunks, ocean wave below.
+function BianchiPinesIcon({ size = 28 }: { size?: number }) {
+  const C = useTheme();
+  const PINE_TRUNK = '#7a3a1a';
+  return (
+    <svg width={size} height={size * (32 / 44)} viewBox="0 0 44 32">
+      <g filter="url(#wobble)">
+        {/* sun + 5 rays, upper-right */}
+        <circle cx="36" cy="6" r="3" fill={C.yellow} stroke={C.ink} strokeWidth="1" />
+        <line x1="36"   y1="1"   x2="36"   y2="2.5" stroke={C.ink} strokeWidth="0.9" strokeLinecap="round" />
+        <line x1="40.5" y1="6"   x2="42"   y2="6"   stroke={C.ink} strokeWidth="0.9" strokeLinecap="round" />
+        <line x1="39.4" y1="2.6" x2="40.5" y2="1.5" stroke={C.ink} strokeWidth="0.9" strokeLinecap="round" />
+        <line x1="32.6" y1="2.6" x2="31.5" y2="1.5" stroke={C.ink} strokeWidth="0.9" strokeLinecap="round" />
+        <line x1="32"   y1="6"   x2="30.5" y2="6"   stroke={C.ink} strokeWidth="0.9" strokeLinecap="round" />
+        {/* middle pine */}
+        <path d="M16 24 L16 16 L11 16 L16 9 L13 9 L16 4 L19 9 L16 9 L21 16 L16 16 L16 24 Z"
+              fill={C.green} stroke={C.ink} strokeWidth="1.2" strokeLinejoin="round" />
+        <rect x="15" y="22" width="2" height="3" fill={PINE_TRUNK} stroke={C.ink} strokeWidth="0.8" />
+        {/* left pine */}
+        <path d="M5 25 L5 19 L1.5 19 L5 14 L3 14 L5 10 L7 14 L5 14 L8.5 19 L5 19 L5 25 Z"
+              fill={C.green} stroke={C.ink} strokeWidth="1.1" strokeLinejoin="round" />
+        <rect x="4.3" y="23.5" width="1.4" height="2.2" fill={PINE_TRUNK} stroke={C.ink} strokeWidth="0.7" />
+        {/* right pine */}
+        <path d="M27 26 L27 21 L24 21 L27 16 L25.5 16 L27 12 L28.5 16 L27 16 L30 21 L27 21 L27 26 Z"
+              fill={C.green} stroke={C.ink} strokeWidth="1.1" strokeLinejoin="round" />
+        <rect x="26.4" y="24.7" width="1.2" height="2" fill={PINE_TRUNK} stroke={C.ink} strokeWidth="0.7" />
+        {/* horizon + wavy ocean */}
+        <line x1="0" y1="26" x2="44" y2="26" stroke={C.ink} strokeWidth="1.2" />
+        <path d="M0 30 q 3 -1.5 6 0 t 6 0 t 6 0 t 6 0 t 6 0 t 6 0 t 6 0 t 6 0"
+              stroke={C.ocean} strokeWidth="1.2" fill="none" strokeLinecap="round" />
+      </g>
+    </svg>
+  );
+}
+
+// Bianchi-only: canonical skyline icon. Empire State (cream face, stepped
+// setbacks, antenna) + Lady Liberty rotated -12° on the left in patina green.
+function BianchiSkylineIcon({ size = 28 }: { size?: number }) {
+  const C = useTheme();
+  const LIBERTY = '#9FC8B5';
+  return (
+    <svg width={size} height={size * (30 / 38)} viewBox="0 0 38 30">
+      <g filter="url(#wobble)" stroke={C.ink} strokeLinejoin="round" strokeLinecap="round">
+        {/* Empire State setbacks */}
+        <g fill={C.paper} strokeWidth="1.1">
+          <rect x="17" y="26" width="14" height="2" />
+          <rect x="18.5" y="14" width="11" height="12" />
+          <rect x="20" y="9" width="8" height="5" />
+          <rect x="21.5" y="5" width="5" height="4" />
+        </g>
+        {/* antenna */}
+        <g stroke={C.ink} strokeWidth="0.9" fill={C.ink}>
+          <line x1="24" y1="5" x2="24" y2="2.2" strokeWidth="1.1" />
+          <circle cx="24" cy="2" r="0.6" />
+        </g>
+        {/* faint window rows */}
+        <g stroke={C.deep} strokeWidth="0.5" opacity="0.85">
+          <line x1="19.5" y1="16.5" x2="28.5" y2="16.5" />
+          <line x1="19.5" y1="19"   x2="28.5" y2="19" />
+          <line x1="19.5" y1="21.5" x2="28.5" y2="21.5" />
+          <line x1="19.5" y1="24"   x2="28.5" y2="24" />
+          <line x1="20.5" y1="10.5" x2="27.5" y2="10.5" />
+          <line x1="20.5" y1="12.5" x2="27.5" y2="12.5" />
+        </g>
+        {/* vertical mullions */}
+        <g stroke={C.ink} strokeWidth="0.5" opacity="0.7">
+          <line x1="21.5" y1="14" x2="21.5" y2="26" />
+          <line x1="24"   y1="14" x2="24"   y2="26" />
+          <line x1="26.5" y1="14" x2="26.5" y2="26" />
+        </g>
+        {/* Lady Liberty, rotated -12° */}
+        <g transform="rotate(-12 11 18)">
+          <rect x="6" y="22" width="9" height="6" fill={C.paper} strokeWidth="1.1" />
+          <line x1="6" y1="24.5" x2="15" y2="24.5" strokeWidth="0.5" opacity="0.6" />
+          <path d="M 7.5 22 L 8.6 14.5 L 9.4 12 L 11.6 12 L 12.4 14.5 L 13.5 22 Z" fill={LIBERTY} strokeWidth="1.1" />
+          <g stroke="#5e8a76" strokeWidth="0.4" fill="none" opacity="0.7">
+            <path d="M 9 16 L 9.4 21.6" />
+            <path d="M 10.5 14.5 L 10.5 21.8" />
+            <path d="M 12 16 L 11.6 21.6" />
+          </g>
+          <rect x="6.4" y="15.4" width="2.6" height="3.4" fill={LIBERTY} strokeWidth="0.9" />
+          <circle cx="10.5" cy="10.5" r="1.4" fill={LIBERTY} strokeWidth="1" />
+          {/* crown spikes */}
+          <g strokeWidth="0.8" fill="none">
+            <line x1="10.5" y1="9.2" x2="10.5" y2="7.4" />
+            <line x1="10.5" y1="9.2" x2="9.4"  y2="7.8" />
+            <line x1="10.5" y1="9.2" x2="11.6" y2="7.8" />
+            <line x1="10.5" y1="9.2" x2="8.6"  y2="8.4" />
+            <line x1="10.5" y1="9.2" x2="12.4" y2="8.4" />
+            <line x1="10.5" y1="9.2" x2="7.8"  y2="9.2" />
+            <line x1="10.5" y1="9.2" x2="13.2" y2="9.2" />
+          </g>
+          {/* torch arm + flame + tablet */}
+          <path d="M 11.6 12.4 L 13.4 9.6 L 14.4 7.6" stroke={LIBERTY} strokeWidth="1.2" fill="none" />
+          <path d="M 14 7.8 L 14.9 5.6 L 15.7 7.4 Z" fill={C.yellow} strokeWidth="0.8" />
+          <line x1="14.9" y1="5.6" x2="15.2" y2="4.2" strokeWidth="0.6" />
+          <rect x="14.1" y="7.4" width="1.6" height="1.1" fill="#9a6a3e" strokeWidth="0.5" />
+        </g>
+        {/* horizon + faint water */}
+        <line x1="0" y1="28" x2="38" y2="28" strokeWidth="1.1" fill="none" />
+        <path d="M 0 29.4 Q 4 28.8, 8 29.4 T 16 29.4 T 24 29.4 T 32 29.4 T 38 29.4"
+              stroke={C.ocean} strokeWidth="0.9" fill="none" />
+      </g>
+    </svg>
+  );
+}
+
 function BeachSketch({ size = 28 }: { size?: number }) {
   const C = useTheme();
   return (
@@ -1080,7 +1190,9 @@ function DirectionToggle({ value, onChange }: {
                 transition: 'color .2s ease',
               }}>
                 <span style={{ filter: on ? 'none' : 'grayscale(0.4) opacity(0.8)', transition: 'filter .2s ease' }}>
-                  {k === 'to-pines' ? <BeachSketch size={26} /> : <SkylineSketch size={26} />}
+                  {k === 'to-pines'
+                    ? (skin.features?.customToggleIcons ? <BianchiPinesIcon size={26} /> : <BeachSketch size={26} />)
+                    : (skin.features?.customToggleIcons ? <BianchiSkylineIcon size={26} /> : <SkylineSketch size={26} />)}
                 </span>
                 <span style={{ whiteSpace: 'nowrap' }}>
                   {k === 'to-pines' ? copy.toggleToPines : copy.toggleToPenn}
@@ -1442,6 +1554,35 @@ function DatePickerStrip({ value, onChange, dates }: {
   const todayLabel = skinCopy(skin).todayLabel;
   const isDisco = !!skin.features?.discoBallWeekend;
   const inkOnActive = !!skin.features?.heroTextInk; // pastel coral needs ink, not white
+
+  // Per-pill twinkle scheduler — each weekend pill blinks once on its own
+  // random 4–8s cadence with a random 0–3s initial offset, so pills never
+  // lockstep. .go class fires the bianchi-twinkle keyframe once via index.html.
+  const twinkleRefs = useRef<Array<HTMLSpanElement | null>>([]);
+  useEffect(() => {
+    if (!isDisco) return;
+    const timers: number[] = [];
+    const fire = (el: HTMLSpanElement) => {
+      el.classList.remove('go');
+      void el.offsetWidth; // force reflow so a re-add restarts the animation
+      el.classList.add('go');
+    };
+    const schedule = (el: HTMLSpanElement) => {
+      const delay = 4000 + Math.random() * 4000;
+      const t = window.setTimeout(() => {
+        fire(el);
+        schedule(el);
+      }, delay);
+      timers.push(t);
+    };
+    for (const el of twinkleRefs.current) {
+      if (!el) continue;
+      const initial = window.setTimeout(() => schedule(el), Math.random() * 3000);
+      timers.push(initial);
+    }
+    return () => { for (const t of timers) window.clearTimeout(t); };
+  }, [isDisco, dates.length]);
+
   return (
     <div style={{ margin: isDisco ? '18px 0 10px' : '6px 0 10px' }}>
       <div style={{ overflowX: 'auto', padding: '4px 18px 8px' }}>
@@ -1449,7 +1590,6 @@ function DatePickerStrip({ value, onChange, dates }: {
           {dates.map(d => {
             const on = value === d.i;
             const isDiscoPill = isDisco && d.weekend;
-            const twinkleDelay = `${(d.i * 1.7) % 7}s`; // deterministic stagger
             return (
               <button key={d.i} onClick={() => onChange(d.i)} style={{
                 flex: '0 0 auto', width: 52, padding: '8px 0',
@@ -1464,7 +1604,9 @@ function DatePickerStrip({ value, onChange, dates }: {
                 {isDiscoPill && <DiscoFacets inkStroke={C.ink} />}
                 {isDiscoPill && <DiscoString inkStroke={C.ink} paper={C.paper} />}
                 {isDiscoPill && (
-                  <span className="bianchi-twinkle"
+                  <span
+                    ref={el => { twinkleRefs.current[d.i] = el; }}
+                    className="bianchi-twinkle"
                     style={{
                       position: 'absolute',
                       top: `${20 + ((d.i * 13) % 14)}%`,
@@ -1472,7 +1614,7 @@ function DatePickerStrip({ value, onChange, dates }: {
                       width: 5, height: 5, borderRadius: 999,
                       background: '#fff', boxShadow: '0 0 5px 1.5px #fff',
                       pointerEvents: 'none',
-                      animationDelay: twinkleDelay,
+                      opacity: 0,
                     }} />
                 )}
                 <div style={{ fontFamily: F.hand, fontSize: 13, opacity: 0.8, position: 'relative', zIndex: 1 }}>{d.today ? todayLabel : d.dow}</div>
@@ -2272,16 +2414,17 @@ export function App() {
   };
   const [qualities, setQualities] = useState<Stoplight[]>(['green']);
   const [skinId, setSkinId]       = useState<string>(() => {
-    // One-time migration: force every visitor to land on Grandmas the first
-    // time they hit a build that has this flag bumped. After the migration
-    // they can still toggle skins via the menu and that choice persists.
-    const FORCE_KEY = 'gopines-skin-force-v1';
+    // One-time migration: force every visitor to land on the current default
+    // skin the first time they hit a build that has this flag bumped. After
+    // the migration they can still toggle skins via the menu and that choice
+    // persists. v1 → Grandmas (May 2026), v2 → Bianchi.
+    const FORCE_KEY = 'gopines-skin-force-v2';
     if (!localStorage.getItem(FORCE_KEY)) {
-      localStorage.setItem('gopines-skin', 'grandmas');
+      localStorage.setItem('gopines-skin', 'bianchi');
       localStorage.setItem(FORCE_KEY, '1');
-      return 'grandmas';
+      return 'bianchi';
     }
-    return localStorage.getItem('gopines-skin') ?? 'grandmas';
+    return localStorage.getItem('gopines-skin') ?? 'bianchi';
   });
   const activeSkin = SKINS.find(s => s.id === skinId) ?? SKINS[0];
   const handleSkinSelect = (id: string) => {
