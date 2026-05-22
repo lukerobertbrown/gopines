@@ -36,15 +36,16 @@
         96%, 97%      { fill: #FFF6CC; }
       }
       .cam-bulb { animation: bianchi-flash 7.5s ease-in-out infinite; }
-      /* Bianchi: disco-ball twinkle (one fade in/out per ~7s, staggered per pill) */
+      /* Bianchi: disco-ball twinkle. The animation is fire-once (.go class
+         added by JS at random intervals so pills don't blink in lockstep). */
       @keyframes bianchi-twinkle {
-        0%, 88%, 100% { opacity: 0; }
-        92%           { opacity: 0.95; }
-        96%           { opacity: 0; }
+        0%        { opacity: 0; }
+        12%       { opacity: 0.95; }
+        32%, 100% { opacity: 0; }
       }
-      .bianchi-twinkle { animation: bianchi-twinkle 7s ease-out infinite; }
+      .bianchi-twinkle.go { animation: bianchi-twinkle 1.4s ease-out 1; }
       @media (prefers-reduced-motion: reduce) {
-        .cam-bulb, .bianchi-twinkle { animation: none; }
+        .cam-bulb, .bianchi-twinkle.go { animation: none; }
       }
     </style>
   </head>
