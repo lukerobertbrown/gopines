@@ -1485,7 +1485,14 @@ function FerryScheduleView({ ferryData, ferryMock }: { ferryData: FerryResp | nu
         return true;
       }));
   }
-  const dayCards = DAY_CARDS.map(d => ({ ...d, trips: byDay.get(d.idx) ?? [] }));
+  // Rotate the card order so today is first, then the next 6 days in sequence.
+  // (#57) — keeps the user landed on the day they care about most.
+  const todayDow = new Date(todayNY() + 'T12:00:00').getDay();
+  const startIdx = DAY_CARDS.findIndex(d => d.idx === todayDow);
+  const orderedCards = startIdx === -1
+    ? DAY_CARDS
+    : [...DAY_CARDS.slice(startIdx), ...DAY_CARDS.slice(0, startIdx)];
+  const dayCards = orderedCards.map(d => ({ ...d, trips: byDay.get(d.idx) ?? [] }));
   const haveAnyTrips = dayCards.some(d => d.trips.length > 0);
   const haveAnyTriangle = dayCards.some(d => d.trips.some(t => t.extraStops));
 
