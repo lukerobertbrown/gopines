@@ -2065,12 +2065,23 @@ export function App() {
   const selectedDow = dowFor(dates[dateIdx].dateStr);
   const todayDow    = dowFor(today);
 
+  // When viewing today, hide trips whose departure is already in the past.
+  // Future dates show the full day; past dates ditto (unlikely but harmless).
+  const isToday = dates[dateIdx].dateStr === today;
   let itineraries: Itinerary[] = [];
+  let allTripsElapsed = false;
   if (selectedDay && ferryTrips.length) {
     const raw = direction === 'to-pines'
       ? buildToPines(selectedDay.outbound, ferryTrips, selectedDow, dates[dateIdx].dateStr)
       : buildToPenn(selectedDay.inbound, ferryTrips, selectedDow, dates[dateIdx].dateStr);
-    itineraries = sort === 'latest' ? [...raw].reverse() : raw;
+    if (isToday) {
+      const nowM = toMin(nowNY());
+      const remaining = raw.filter(it => toMin(it.departRaw) > nowM);
+      allTripsElapsed = raw.length > 0 && remaining.length === 0;
+      itineraries = sort === 'latest' ? [...remaining].reverse() : remaining;
+    } else {
+      itineraries = sort === 'latest' ? [...raw].reverse() : raw;
+    }
   }
 
   // Hero card always uses today's data, earliest-first — independent of date/sort.
@@ -2158,7 +2169,11 @@ export function App() {
                 <div style={{ margin: '12px 18px', fontFamily: F.hand, color: '#7a736a', fontSize: 15 }}>
                   {qualities.length === 0
                     ? 'No quality filters selected — tap a chip above to see trips.'
-                    : 'No trips match the selected quality filters.'}
+                    : allTripsElapsed
+                      ? (direction === 'to-pines'
+                          ? skinCopy(activeSkin).emptyToPines
+                          : skinCopy(activeSkin).emptyToPenn)
+                      : 'No trips match the selected quality filters.'}
                 </div>
               ) : (
                 filtered.map(it => (
