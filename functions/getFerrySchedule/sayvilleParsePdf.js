@@ -43,8 +43,9 @@ const MONTH_LOOKUP = {
   DEC: 12, DECEMBER: 12,
 };
 
-const DAY_RE = /\b(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)(?:\s*[-‐-―]\s*(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY))?/;
 const DAY_NAMES = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
+/** Quick test for any day name (including plural forms like MONDAYS). */
+const HAS_DAY_RE = /\b(?:SUNDAY|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY)S?\b/i;
 
 function expandDayRange(startName, endName) {
   const s = DAY_NAMES.indexOf(startName.toUpperCase());
@@ -58,6 +59,60 @@ function expandDayRange(startName, endName) {
     for (let i = 0; i <= e; i++) out.push(i);
   }
   return out;
+}
+
+/**
+ * Extract JS day indices (0=Sun…6=Sat) from a day-of-week header string.
+ * Handles all observed Sayville schedule formats:
+ *   - Single:           "FRIDAY", "MONDAYS"
+ *   - Dash range:       "MONDAY - WEDNESDAY", "MONDAY–WEDNESDAY"
+ *   - Ampersand union:  "SATURDAY & SUNDAY", "TUESDAYS & WEDNESDAYS"
+ *   - Comma union:      "SATURDAYS, SUNDAYS & HOLIDAYS" (non-day words ignored)
+ * Returns null if no day name is found.
+ */
+function parseDaysFromHeader(text) {
+  const upper = text.toUpperCase();
+  const re = /\b(SUNDAY|MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY)S?\b/g;
+  const found = [];
+  let m;
+  while ((m = re.exec(upper)) !== null) {
+    found.push({ name: m[1], index: m.index, end: m.index + m[0].length });
+  }
+  if (found.length === 0) return null;
+
+  const days = new Set();
+  let i = 0;
+  while (i < found.length) {
+    const cur = found[i];
+    if (i + 1 < found.length) {
+      const between = upper.slice(cur.end, found[i + 1].index);
+      if (/[-–—‐]/.test(between)) {
+        for (const d of expandDayRange(cur.name, found[i + 1].name)) days.add(d);
+        i += 2;
+        continue;
+      }
+    }
+    days.add(DAY_NAMES.indexOf(cur.name));
+    i++;
+  }
+
+  const result = [...days].sort((a, b) => a - b);
+  return result.length > 0 ? result : null;
+}
+
+/** Build a human-readable label from a sorted days array. */
+function daysToLabel(days) {
+  if (!days || days.length === 0) return null;
+  if (days.length === 1) return titleCase(DAY_NAMES[days[0]]);
+  // Contiguous range of 3+ days → "Monday – Wednesday"
+  let contiguous = true;
+  for (let i = 1; i < days.length; i++) {
+    if (days[i] !== days[i - 1] + 1) { contiguous = false; break; }
+  }
+  if (contiguous && days.length > 2) {
+    return `${titleCase(DAY_NAMES[days[0]])} – ${titleCase(DAY_NAMES[days[days.length - 1]])}`;
+  }
+  return days.map((d) => titleCase(DAY_NAMES[d])).join(" & ");
 }
 
 /**
@@ -265,12 +320,9 @@ function findDaySections(rows) {
     const text = row.items.map((it) => it.str).join(" ").trim();
     // Skip rows containing digits (avoids the schedule's title-case date range).
     if (/\d/.test(text)) continue;
-    const m = text.match(DAY_RE);
-    if (!m) continue;
-    const days = expandDayRange(m[1], m[2]);
-    if (days.length === 0) continue;
-    const label = m[2] ? `${titleCase(m[1])} – ${titleCase(m[2])}` : titleCase(m[1]);
-    sections.push({ days, label, yStart: row.y, yEnd: -Infinity });
+    const days = parseDaysFromHeader(text);
+    if (!days) continue;
+    sections.push({ days, label: daysToLabel(days), yStart: row.y, yEnd: -Infinity });
   }
   // Set yEnd as the Y of the next section (sections are ordered top-down by
   // Y desc, so the next section has a smaller Y).
@@ -471,7 +523,7 @@ async function parseSayvillePinesPdf(pdfBuffer, opts) {
     for (const row of rows) {
       const text = row.items.map((it) => it.str).join(" ");
       // Skip header rows.
-      if (DAY_RE.test(text) && !/\d{1,2}\s*:\s*\d{2}/.test(text)) continue;
+      if (HAS_DAY_RE.test(text) && !/\d{1,2}\s*:\s*\d{2}/.test(text)) continue;
       // Find owning section (Y is between yStart and yEnd; PDF Y desc).
       const sec = sections.find((s) => row.y < s.yStart && row.y > s.yEnd);
       if (!sec) continue;
@@ -520,4 +572,7 @@ module.exports = {
   // Helpers (mostly for testing).
   parseMonthDay,
   expandDayRange,
+  parseDaysFromHeader,
+  daysToLabel,
+  HAS_DAY_RE,
 };
