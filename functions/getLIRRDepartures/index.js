@@ -67,6 +67,25 @@ const CURRENT_LIRR_VERSION = 2;
 /** Stale-fallback threshold for the Firestore doc — beyond this, HTTP handlers
  * proactively re-fetch even if the scheduled job hasn't run yet. */
 const FIRESTORE_MAX_AGE_MS = 26 * 60 * 60 * 1000;
+/** Shorter threshold when the cached payload is missing service for a future
+ * day. Upstream GTFS feeds sometimes lag by a day or two across schedule
+ * transitions (e.g. GO201_25 → GO201_26 around Memorial Day); rather than wait
+ * for the next scheduled refresh at 6am, retry hourly so the gap heals on its
+ * own. */
+const FIRESTORE_INCOMPLETE_MAX_AGE_MS = 60 * 60 * 1000;
+
+/** A day is "incomplete" if it has neither outbound nor inbound trips. The
+ * parser tags these with a note ("No service IDs in GTFS calendar_dates…"),
+ * but a missing day can also mean the build failed mid-way. */
+function payloadHasIncompleteDay(payload) {
+  if (!payload || !Array.isArray(payload.days)) return false;
+  return payload.days.some(
+    (d) =>
+      d &&
+      (!Array.isArray(d.outbound) || d.outbound.length === 0) &&
+      (!Array.isArray(d.inbound) || d.inbound.length === 0),
+  );
+}
 
 /** In-memory caches keyed by station key. */
 const scheduleCaches = {};
@@ -91,15 +110,17 @@ async function refreshLirrScheduleForStation(stationKey, { force = false } = {})
     const existing = await docRef.get();
     const data = existing.exists ? existing.data() : null;
     const ageMs = data && data.updatedAt ? Date.now() - data.updatedAt.toMillis() : Infinity;
+    const incomplete = data && data.payload && payloadHasIncompleteDay(data.payload);
+    const maxAgeMs = incomplete ? FIRESTORE_INCOMPLETE_MAX_AGE_MS : FIRESTORE_MAX_AGE_MS;
     const fresh =
       data &&
       data.parseVersion === CURRENT_LIRR_VERSION &&
       data.payload &&
       Array.isArray(data.payload.days) &&
       data.payload.days.length > 0 &&
-      ageMs < FIRESTORE_MAX_AGE_MS;
+      ageMs < maxAgeMs;
     if (fresh) {
-      console.log(`refreshLirrSchedule[${stationKey}]: skip (${Math.round(ageMs / 60000)}m old, version ok)`);
+      console.log(`refreshLirrSchedule[${stationKey}]: skip (${Math.round(ageMs / 60000)}m old, version ok${incomplete ? ", incomplete" : ""})`);
       return { skipped: true, stationKey, reason: "fresh" };
     }
   }
@@ -175,13 +196,15 @@ async function getCachedLirrPayload(stationKey) {
   if (snap.exists) {
     const data = snap.data();
     const ageMs = data && data.updatedAt ? Date.now() - data.updatedAt.toMillis() : Infinity;
+    const incomplete = data && data.payload && payloadHasIncompleteDay(data.payload);
+    const maxAgeMs = incomplete ? FIRESTORE_INCOMPLETE_MAX_AGE_MS : FIRESTORE_MAX_AGE_MS;
     if (
       data &&
       data.parseVersion === CURRENT_LIRR_VERSION &&
       data.payload &&
       Array.isArray(data.payload.days) &&
       data.payload.days.length > 0 &&
-      ageMs < FIRESTORE_MAX_AGE_MS
+      ageMs < maxAgeMs
     ) {
       return data.payload;
     }

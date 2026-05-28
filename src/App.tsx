@@ -2553,6 +2553,32 @@ export function App() {
 
       {!loading && (() => {
         const filtered = itineraries.filter(i => qualities.includes(i.stoplight));
+        // Distinguish "filters hiding trips" from "no schedule data yet". The
+        // LIRR static feed sometimes lags by a day across schedule transitions
+        // (#62: 5/31/26 went blank when the cache held the pre-summer feed),
+        // so when the day block exists but has no trains, say so instead of
+        // blaming the filter chips.
+        const lirrMissing = !!lirrData && !selectedDay;
+        const lirrEmpty = !!selectedDay &&
+          selectedDay.outbound.length === 0 &&
+          selectedDay.inbound.length === 0;
+        const emptyMessage = (() => {
+          if (lirrMissing || lirrEmpty) {
+            return "Schedule data for this date isn't available yet — usually refreshes overnight.";
+          }
+          if (qualities.length === 0) {
+            return 'No quality filters selected — tap a chip above to see trips.';
+          }
+          if (allTripsElapsed) {
+            return direction === 'to-pines'
+              ? skinCopy(activeSkin).emptyToPines
+              : skinCopy(activeSkin).emptyToPenn;
+          }
+          if (itineraries.length === 0) {
+            return 'No connecting trips for this date.';
+          }
+          return 'No trips match the selected quality filters.';
+        })();
         return (
           <>
             <FilterBar
@@ -2564,13 +2590,7 @@ export function App() {
             <div>
               {filtered.length === 0 && !err ? (
                 <div style={{ margin: '12px 18px', fontFamily: F.hand, color: '#7a736a', fontSize: 15 }}>
-                  {qualities.length === 0
-                    ? 'No quality filters selected — tap a chip above to see trips.'
-                    : allTripsElapsed
-                      ? (direction === 'to-pines'
-                          ? skinCopy(activeSkin).emptyToPines
-                          : skinCopy(activeSkin).emptyToPenn)
-                      : 'No trips match the selected quality filters.'}
+                  {emptyMessage}
                 </div>
               ) : (
                 filtered.map(it => (
