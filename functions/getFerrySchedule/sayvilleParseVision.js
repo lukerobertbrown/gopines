@@ -18,7 +18,7 @@
  *      and a human `dayLabel`.
  */
 
-const { extractTimesFromLine, to24h } = require("./sayvilleParsePdf");
+const { extractTimesFromLine, to24h, parseDaysFromHeader, daysToLabel, HAS_DAY_RE, expandDayRange, DAY_NAMES } = require("./sayvilleParsePdf");
 
 // Vision OCR sometimes splits "7:00A" into separate tokens ("7", ":", "00A")
 // that re-join with spaces; this looser regex accepts whitespace between parts.
@@ -28,29 +28,6 @@ function extractTimesLoose(line) {
   for (const m of line.matchAll(re)) {
     const t24 = to24h(m[1], m[2], m[3]);
     if (t24) out.push({ departureTime: t24, raw: m[0].trim() });
-  }
-  return out;
-}
-
-const DAY_NAMES = ["SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"];
-// Case-sensitive: matches the all-caps headers (MONDAY, THURSDAY, etc.) but
-// NOT title-case mentions like "Friday, April 17 thru Wednesday, May 20".
-const DAY_RE = /\b(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)(?:\s*[-‐-―]\s*(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY))?/;
-
-function dayIndex(name) {
-  return DAY_NAMES.indexOf(name.toUpperCase());
-}
-
-function expandDayRange(startName, endName) {
-  const s = dayIndex(startName);
-  const e = endName ? dayIndex(endName) : s;
-  if (s < 0 || e < 0) return [];
-  const out = [];
-  if (s <= e) {
-    for (let i = s; i <= e; i++) out.push(i);
-  } else {
-    for (let i = s; i <= 6; i++) out.push(i);
-    for (let i = 0; i <= e; i++) out.push(i);
   }
   return out;
 }
@@ -163,13 +140,10 @@ function findDayHeaders(lines) {
     // Day-of-week section headers contain no digits and no slashes.
     // The title's "Friday, April 17 thru Wednesday, May 20" has digits — skip.
     if (/\d/.test(text)) continue;
-    const m = text.match(DAY_RE);
-    if (!m) continue;
-    const days = expandDayRange(m[1], m[2]);
-    if (!days.length) continue;
+    const days = parseDaysFromHeader(text);
+    if (!days) continue;
     const cx = line.words.reduce((s, w) => s + w.cx, 0) / line.words.length;
-    const label = m[2] ? `${titleCase(m[1])} – ${titleCase(m[2])}` : titleCase(m[1]);
-    headers.push({ days, cy: line.cy, cx, label });
+    headers.push({ days, cy: line.cy, cx, label: daysToLabel(days) });
   }
   return headers;
 }
@@ -270,7 +244,7 @@ function geometryParse(ann) {
 
     for (const line of lines) {
       const text = line.words.map((w) => w.text).join(" ");
-      if (!/\d/.test(text) && DAY_RE.test(text)) continue;
+      if (!/\d/.test(text) && HAS_DAY_RE.test(text)) continue;
 
       const times = extractTimesLoose(text);
       if (times.length === 0) continue;
