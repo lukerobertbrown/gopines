@@ -69,18 +69,21 @@ function weekdayShort(ymdDash) {
 function loadGtfsFromZipBuffer(buf) {
   return JSZip.loadAsync(buf).then((zip) => {
     const read = (name) => zip.file(name).async("string");
+    const readOpt = (name) => zip.file(name) ? zip.file(name).async("string") : Promise.resolve(null);
     return Promise.all([
       read("stops.txt"),
       read("trips.txt"),
       read("stop_times.txt"),
       read("calendar_dates.txt"),
       read("feed_info.txt"),
-    ]).then(([stopsTxt, tripsTxt, stopTimesTxt, calTxt, feedTxt]) => ({
+      readOpt("transfers.txt"),
+    ]).then(([stopsTxt, tripsTxt, stopTimesTxt, calTxt, feedTxt, transfersTxt]) => ({
       stops: parseCsv(stopsTxt),
       trips: parseCsv(tripsTxt),
       stopTimes: parseCsv(stopTimesTxt),
       calendarDates: parseCsv(calTxt),
       feedInfo: parseCsv(feedTxt)[0] || {},
+      transfers: transfersTxt ? parseCsv(transfersTxt) : [],
     }));
   });
 }
@@ -132,6 +135,32 @@ function serviceIdByTripMap(trips) {
 }
 
 /**
+ * Build an index of GTFS transfers.txt for fast lookup during journey building.
+ * - transfer_type=1 ("timed"): the departing train is guaranteed to wait; no buffer needed.
+ * - transfer_type=2 ("requires minimum transfer time"): use the published min_transfer_time.
+ * All other pairs fall back to DEFAULT_MIN_TRANSFER_SEC.
+ */
+function buildTransfersIndex(transfers) {
+  const timed = new Set();
+  const stopMin = new Map();
+  for (const r of transfers) {
+    if (r.transfer_type === "1") {
+      timed.add(`${r.from_trip_id}|${r.to_trip_id}|${r.from_stop_id}`);
+    } else if (r.transfer_type === "2" && r.min_transfer_time) {
+      stopMin.set(`${r.from_stop_id}|${r.to_stop_id}`, Number(r.min_transfer_time));
+    }
+  }
+  return { timed, stopMin };
+}
+
+function requiredTransferSec(index, fromTripId, toTripId, stopId, fallback) {
+  if (index.timed.has(`${fromTripId}|${toTripId}|${stopId}`)) return 0;
+  const key = `${stopId}|${stopId}`;
+  if (index.stopMin.has(key)) return index.stopMin.get(key);
+  return fallback;
+}
+
+/**
  * For each board stop X, list legs (same trip, same service day) from X to destStop.
  */
 function legsByBoardStopToDest(tripRows, tripsMeta, serviceByTrip, active, destStop) {
@@ -175,6 +204,7 @@ function buildJourneysForDay({
   origin,
   dest,
   minTransferSec,
+  transfersIndex,
 }) {
   const legsToDest = legsByBoardStopToDest(tripRows, tripsById, serviceByTrip, active, dest);
 
@@ -238,7 +268,8 @@ function buildJourneysForDay({
         const svc2 = serviceByTrip.get(leg2.tripId);
         if (!svc2 || !active.has(svc2)) continue;
         const depX2 = timeToSec(leg2.dep);
-        if (depX2 < arrX + minTransferSec) continue;
+        const buf = requiredTransferSec(transfersIndex, tripId1, leg2.tripId, X, minTransferSec);
+        if (depX2 < arrX + buf) continue;
 
         const depPenn = timeToSec(by1.get(origin).departure_time);
         const arrDest = timeToSec(leg2.arr);
@@ -332,6 +363,7 @@ async function buildSchedulePayload(numDays = 14, originId = PENN_ID) {
   const tripRows = buildTripStopRows(gtfs.stopTimes);
   const tripsById = tripMetaMap(gtfs.trips);
   const serviceByTrip = serviceIdByTripMap(gtfs.trips);
+  const transfersIndex = buildTransfersIndex(gtfs.transfers);
 
   const days = [];
   const startNy = formatYmdNy(new Date());
@@ -359,6 +391,7 @@ async function buildSchedulePayload(numDays = 14, originId = PENN_ID) {
       origin: originId,
       dest: SAYVILLE_ID,
       minTransferSec: DEFAULT_MIN_TRANSFER_SEC,
+      transfersIndex,
     });
 
     const inbound = buildJourneysForDay({
@@ -370,6 +403,7 @@ async function buildSchedulePayload(numDays = 14, originId = PENN_ID) {
       origin: SAYVILLE_ID,
       dest: originId,
       minTransferSec: DEFAULT_MIN_TRANSFER_SEC,
+      transfersIndex,
     });
 
     days.push({
@@ -386,7 +420,7 @@ async function buildSchedulePayload(numDays = 14, originId = PENN_ID) {
     source: GTFS_ZIP_URL,
     feedVersion: gtfs.feedInfo.feed_version || "",
     disclaimer:
-      "Static schedule from MTA GTFS. /api/lirrScheduleLive merges GTFS-Realtime delays for today (live feed is currently reachable without an API key). Transfer buffer 5 min. At most one transfer; up to 200 options per direction per day after deduping by departure minute.",
+      "Static schedule from MTA GTFS. /api/lirrScheduleLive merges GTFS-Realtime delays for today (live feed is currently reachable without an API key). Timed transfers (transfer_type=1 in transfers.txt) are honored; 5-min buffer for all others. At most one transfer; up to 200 options per direction per day after deduping by departure minute.",
     stops: {
       origin: { id: originId, name: names.get(originId) },
       sayville: { id: SAYVILLE_ID, name: names.get(SAYVILLE_ID) },
