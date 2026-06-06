@@ -23,7 +23,9 @@
  * the row's Y within ~10 PDF units in the same X cluster).
  */
 
-const pdfParse = require("pdf-parse");
+// pdf-parse is required lazily (inside readPositionalItems) so that importing
+// this module for its pure parsing helpers — e.g. in unit tests — doesn't pull
+// in the PDF runtime, which only the positional reader actually needs.
 
 /** Loose time regex — handles "7:00A", "12:00N", "8:30 PM", etc. */
 const TIME_PATTERN = /(\d{1,2})\s*:\s*(\d{2})\s*(AM|PM|NOON|A|P|N)(?![A-Za-z])/gi;
@@ -170,6 +172,7 @@ function toIso(year, month, day) {
  * of { x, y, str } for every text run on every page.
  */
 async function readPositionalItems(pdfBuffer) {
+  const pdfParse = require("pdf-parse");
   /** @type {{ x: number, y: number, str: string }[]} */
   const items = [];
   function pagerender(pageData) {
@@ -407,15 +410,25 @@ function attachAnnotationsToRows(rows, annots) {
   // annotation can snap to a row that's just the date item itself (which
   // sits at the *exact* Y of the annotation and so wins on closeness).
   const timeRows = rows.filter((r) => r.items.some((it) => /\d{1,2}\s*:\s*\d{2}/.test(it.str)));
+  // Margin around a row's time-token X span. The date item sits in the same
+  // sub-column as the time it qualifies, so its centroid should land within
+  // (or just beside) that column — not merely "within 200 units", which could
+  // bleed a left-column date onto a right-column boat and wrongly filter it.
+  const X_MARGIN = 60;
   for (const ann of annots) {
     let bestRow = null;
     let bestD = Infinity;
     for (const row of timeRows) {
       const dy = Math.abs(row.y - ann.y);
-      if (dy > 12) continue;
-      // Same X cluster? Find any item in the row close in X.
-      const xMatch = row.items.some((it) => Math.abs(it.x - ann.x) < 200);
-      if (!xMatch) continue;
+      if (dy > 8) continue;
+      // The annotation's X must fall within this row's time-token X span (±margin).
+      const timeXs = row.items
+        .filter((it) => /\d{1,2}\s*:\s*\d{2}/.test(it.str))
+        .map((it) => it.x);
+      if (timeXs.length === 0) continue;
+      const xMin = Math.min(...timeXs) - X_MARGIN;
+      const xMax = Math.max(...timeXs) + X_MARGIN;
+      if (ann.x < xMin || ann.x > xMax) continue;
       if (dy < bestD) { bestD = dy; bestRow = row; }
     }
     if (!bestRow) continue;

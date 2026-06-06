@@ -9,10 +9,12 @@ const { setGlobalOptions } = require("firebase-functions/v2");
 const { defineSecret } = require("firebase-functions/params");
 const vision = require("@google-cloud/vision");
 const { DateTime } = require("luxon");
+const crypto = require("crypto");
 
 const { discoverPinesScheduleAssets } = require("./sayvilleDiscover");
 const { parseVisionDocumentResult } = require("./sayvilleParseVision");
 const { parseSayvillePinesPdf } = require("./sayvilleParsePdf");
+const { reconcileTrips } = require("./mergeTrips");
 
 setGlobalOptions({
   region: "us-east1",
@@ -69,7 +71,7 @@ const TZ = "America/New_York";
 const WALK_FROM_STATION_SEC = 600;
 
 /** Bump when parser logic changes to force a fresh ingest of unchanged source URLs. */
-const CURRENT_INGEST_VERSION = 5;
+const CURRENT_INGEST_VERSION = 6;
 
 /**
  * @param {FirebaseFirestore.DocumentData[]|undefined} trips
@@ -121,26 +123,47 @@ async function ingestPinesSchedule({ force = false } = {}) {
   const existing = await docRef.get();
   const ex = existing.data();
 
+  const fetchOpts = {
+    headers: { "user-agent": "Mozilla/5.0 (compatible; gopines/1.0; +https://gopines.gay)" },
+  };
+
+  // Fetch the PNG bytes up front so we can hash the actual source content. The
+  // previous skip-guard keyed only on the asset URL, but Wix frequently reuses
+  // the same media URL when swapping a schedule image — so a new schedule with
+  // different boats would never re-ingest. Hashing the bytes is cheap and runs
+  // before the paid Vision OCR call, so unchanged content still short-circuits.
+  const pngRes = await fetchWithTimeout(assets.pngUrl, fetchOpts, 20000);
+  if (!pngRes.ok) throw new Error(`PNG fetch failed: ${pngRes.status}`);
+  const pngBuf = Buffer.from(await pngRes.arrayBuffer());
+
+  let pdfBuf = null;
+  if (assets.pdfUrl) {
+    try {
+      const pdfRes = await fetchWithTimeout(assets.pdfUrl, fetchOpts, 20000);
+      if (pdfRes.ok) pdfBuf = Buffer.from(await pdfRes.arrayBuffer());
+    } catch (e) {
+      console.warn("PDF fetch (for hashing) failed:", (e && e.message) || e);
+    }
+  }
+
+  const hash = crypto.createHash("sha256");
+  hash.update(pngBuf);
+  if (pdfBuf) hash.update(pdfBuf);
+  const contentHash = hash.digest("hex");
+
   const sameAssets =
     ex?.pngUrl === assets.pngUrl && (ex?.pdfUrl || "") === (assets.pdfUrl || "");
   const alreadyOk =
     sameAssets &&
+    ex?.contentHash === contentHash &&
     ex?.parseVersion === CURRENT_INGEST_VERSION &&
     Array.isArray(ex?.trips) &&
     ex.trips.length > 0;
 
   if (!force && existing.exists && alreadyOk) {
-    console.log("ingestPinesSchedule: skip (same assets, current version, trips populated)");
+    console.log("ingestPinesSchedule: skip (same content hash, current version, trips populated)");
     return { skipped: true, reason: "unchanged" };
   }
-
-  const fetchOpts = {
-    headers: { "user-agent": "Mozilla/5.0 (compatible; gopines/1.0; +https://gopines.gay)" },
-  };
-
-  const pngRes = await fetchWithTimeout(assets.pngUrl, fetchOpts, 20000);
-  if (!pngRes.ok) throw new Error(`PNG fetch failed: ${pngRes.status}`);
-  const pngBuf = Buffer.from(await pngRes.arrayBuffer());
 
   const client = new vision.ImageAnnotatorClient();
   const [result] = await client.documentTextDetection({ image: { content: pngBuf } });
@@ -149,46 +172,28 @@ async function ingestPinesSchedule({ force = false } = {}) {
   }
 
   const parsed = parseVisionDocumentResult(result);
-  const trips = parsed.trips;
+  let trips = parsed.trips;
   let parseNotes = parsed.parseNotes;
   const scheduleTitle = parsed.scheduleTitle ?? null;
   const effectiveDateRange = parsed.effectiveDateRange ?? null;
 
-  // Cross-reference with the PDF (if available). The PDF preserves real
-  // glyphs, so it has reliable ▲ markers and STARTS/ENDS/ONLY annotations
-  // that OCR drops. We use Vision as the source of truth for trip *existence*
-  // and let the PDF augment each trip's `extraStops` / `effectiveStart` /
-  // `effectiveEnd` attributes by matching on (dayLabel, direction, time).
-  let pdfAugmented = 0;
+  // Reconcile with the PDF (if available). The PDF preserves real glyphs, so it
+  // has reliable ▲ markers and STARTS/ENDS/ONLY annotations that OCR drops, and
+  // it parses trips independently. We keep a boat that EITHER parser found: the
+  // PDF augments matching Vision trips' extraStops/effective dates AND recovers
+  // any boat Vision's OCR dropped (matched on dayLabel|direction|time). This
+  // stops a single parser's row-miss from silently hiding a real departure.
   try {
-    if (assets.pdfUrl) {
-      const pdfRes = await fetchWithTimeout(assets.pdfUrl, fetchOpts, 20000);
-      if (pdfRes.ok) {
-        const pdfBuf = Buffer.from(await pdfRes.arrayBuffer());
-        const pdfParsed = await parseSayvillePinesPdf(pdfBuf, { scheduleTitle });
-        const pdfTrips = pdfParsed.trips || [];
-        // Index by (dayLabel|direction|HH:MM) for O(1) lookup.
-        const idx = new Map();
-        for (const p of pdfTrips) {
-          const key = `${p.dayLabel}|${p.direction}|${p.departureTime}`;
-          idx.set(key, p);
-        }
-        for (const t of trips) {
-          const key = `${t.dayLabel}|${t.direction}|${t.departureTime}`;
-          const m = idx.get(key);
-          if (!m) continue;
-          if (typeof m.extraStops === "boolean") t.extraStops = m.extraStops;
-          if (m.effectiveStart) t.effectiveStart = m.effectiveStart;
-          if (m.effectiveEnd) t.effectiveEnd = m.effectiveEnd;
-          pdfAugmented++;
-        }
-        parseNotes = `${parseNotes}+pdf:${pdfParsed.parseNotes}|augmented=${pdfAugmented}`;
-      } else {
-        parseNotes = `${parseNotes}+pdf_fetch_${pdfRes.status}`;
-      }
+    if (pdfBuf) {
+      const pdfParsed = await parseSayvillePinesPdf(pdfBuf, { scheduleTitle });
+      const { trips: merged, augmented, added } = reconcileTrips(trips, pdfParsed.trips || []);
+      trips = merged;
+      parseNotes = `${parseNotes}+pdf:${pdfParsed.parseNotes}|augmented=${augmented}|added=${added}`;
+    } else if (assets.pdfUrl) {
+      parseNotes = `${parseNotes}+pdf_unavailable`;
     }
   } catch (e) {
-    console.warn("PDF cross-reference failed:", (e && e.message) || e);
+    console.warn("PDF reconcile failed:", (e && e.message) || e);
     parseNotes = `${parseNotes}+pdf_error`;
   }
 
@@ -199,11 +204,12 @@ async function ingestPinesSchedule({ force = false } = {}) {
     sourcePageUrl: assets.sourcePageUrl,
     pngUrl: assets.pngUrl,
     pdfUrl: assets.pdfUrl || null,
+    contentHash,
     scheduleTitle,
     effectiveDateRange,
     trips,
     parseVersion: CURRENT_INGEST_VERSION,
-    parseSource: "vision",
+    parseSource: "vision+pdf",
     visionConfidenceNote: parseNotes,
   });
 

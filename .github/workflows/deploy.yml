@@ -36,6 +36,10 @@ jobs:
         run: npm ci
         working-directory: functions/getFerrySchedule
 
+      - name: Test ferry schedule parser
+        run: npm test
+        working-directory: functions/getFerrySchedule
+
       - name: Build frontend
         run: npm run build
 
