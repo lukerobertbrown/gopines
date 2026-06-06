@@ -271,6 +271,15 @@ function addMin(hhmm: string, delta: number): string {
   return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
 }
 
+// Minutes from one HH:MM to another, treating a smaller "to" as having crossed
+// midnight (back-end clock strings wrap past 24:00, e.g. a 1:10a arrival is "01:10").
+// Trips are capped at 240 min, so a single +1440 correction is always sufficient.
+function durationMin(fromHHMM: string, toHHMM: string): number {
+  let d = toMin(toHHMM) - toMin(fromHHMM);
+  if (d < 0) d += 1440;
+  return d;
+}
+
 function fmt(hhmm: string): string {
   const s = (hhmm || '').slice(0, 5);
   const [hStr, mStr] = s.split(':');
@@ -455,10 +464,10 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number, da
     const ferryTrip = pines.find(f => toMin(f.time) >= thresh);
     if (!ferryTrip) continue;
     const ferry = ferryTrip.time;
-    const layover = toMin(ferry) - toMin(sayArr);
+    const layover = durationMin(sayArr, ferry);
     if (layover > MAX_LAYOVER_MIN) continue;
     const pinesArrRaw = addMin(ferry, FERRY_MIN);
-    const total = toMin(pinesArrRaw) - toMin(j.depart.slice(0, 5));
+    const total = durationMin(j.depart.slice(0, 5), pinesArrRaw);
     if (total < 60 || total > 240) continue;
     const segments: Segment[] = [
       ...j.legs.map(l => ({
@@ -498,9 +507,9 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number, date
     const thresh = toMin(sayArrRaw) + WALK_MIN;
     const train = trains.find(j => toMin(j.depart.slice(0, 5)) >= thresh);
     if (!train) continue;
-    const layover = toMin(train.depart.slice(0, 5)) - toMin(sayArrRaw);
+    const layover = durationMin(sayArrRaw, train.depart.slice(0, 5));
     if (layover > MAX_LAYOVER_MIN) continue;
-    const total = toMin(train.arrive.slice(0, 5)) - toMin(ferryDep);
+    const total = durationMin(ferryDep, train.arrive.slice(0, 5));
     if (total < 60 || total > 240) continue;
     const segments: Segment[] = [
       { kind: 'ferry', time: fmt(ferryDep),  fromTo: 'Pines → Sayville', extraStops: ferryTrip.extraStops },
