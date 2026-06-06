@@ -63,7 +63,7 @@ const STATION_DOC_NAMES = {
   woodside:        "woodside_sayville_schedule",
 };
 /** Bump when buildSchedulePayload's output shape changes meaningfully. */
-const CURRENT_LIRR_VERSION = 2;
+const CURRENT_LIRR_VERSION = 3;
 /** Stale-fallback threshold for the Firestore doc — beyond this, HTTP handlers
  * proactively re-fetch even if the scheduled job hasn't run yet. */
 const FIRESTORE_MAX_AGE_MS = 26 * 60 * 60 * 1000;
