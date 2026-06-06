@@ -351,14 +351,36 @@ function countdownStr(totalMin: number): string {
 }
 
 // Trip classification:
-//   • long (red)   = 3h+ door-to-door, regardless of layover
+//   • long (red)   = 3h+ door-to-door, OR a comfortable-but-slower trip that
+//                    catches the same ferry as a more efficient "best" trip
 //   • risky (amber)= short trip but tight (<20 min) Sayville transfer
-//   • best (green) = short trip with a comfortable (≥20 min) Sayville layover
+//   • best (green) = the single most efficient (lowest total) comfortable
+//                    (≥20 min Sayville layover) trip for each ferry departure
 const COMFORT_LAYOVER_MIN = 20;
 const AVOID_TOTAL_MIN = 180;
 function sl(totalMin: number, layoverMin: number): Stoplight {
   if (totalMin >= AVOID_TOTAL_MIN) return 'red';
   return layoverMin >= COMFORT_LAYOVER_MIN ? 'green' : 'amber';
+}
+
+// "Best" must mean best: for each ferry departure only the single most efficient
+// (lowest total door-to-door) comfortable trip keeps "best" (green). Other
+// comfortable trips that catch the same ferry are longer than best but aren't
+// risky, so they're filed under "long" (red). Risky/long trips are left as-is.
+function keepBestPerFerry(items: Itinerary[], ferryKey: (it: Itinerary) => string): void {
+  const groups = new Map<string, Itinerary[]>();
+  for (const it of items) {
+    const k = ferryKey(it);
+    const g = groups.get(k);
+    if (g) g.push(it); else groups.set(k, [it]);
+  }
+  for (const group of groups.values()) {
+    const greens = group.filter(it => it.stoplight === 'green');
+    if (greens.length <= 1) continue;
+    let best = greens[0];
+    for (const it of greens) if (it.total < best.total) best = it;
+    for (const it of greens) if (it !== best) it.stoplight = 'red';
+  }
 }
 
 function slInfo(s: Stoplight, labels: SkinCopy['stoplight'] = FALLBACK_COPY.stoplight) {
@@ -454,6 +476,7 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number, da
       segments,
     });
   }
+  keepBestPerFerry(result, it => it.arriveRaw);
   return result;
 }
 
@@ -494,6 +517,7 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number, date
       segments,
     });
   }
+  keepBestPerFerry(result, it => it.departRaw);
   return result;
 }
 
