@@ -241,6 +241,7 @@ type Segment = {
   time: string;     // formatted, e.g. "8:08a"
   fromTo: string;   // "Penn → Babylon"
   name?: string;    // train number, e.g. "605"
+  extraStops?: boolean; // ▲ ferry stops at Cherry Grove en route
 };
 
 type Itinerary = {
@@ -443,16 +444,17 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number, da
   const dayFerries = ferriesForDay(ferries, dow, dateStr);
   const pines = dayFerries
     .filter(f => f.direction === 'sayville_to_pines' || f.direction === 'unknown')
-    .map(f => f.departureTime.slice(0, 5))
-    .sort();
+    .map(f => ({ time: f.departureTime.slice(0, 5), extraStops: !!f.extraStops }))
+    .sort((a, b) => a.time.localeCompare(b.time));
   let id = 0;
   const result: Itinerary[] = [];
   for (const j of outbound) {
     if (j.canceled) continue;
     const sayArr = j.arrive.slice(0, 5);
     const thresh = toMin(sayArr) + WALK_MIN;
-    const ferry = pines.find(t => toMin(t) >= thresh);
-    if (!ferry) continue;
+    const ferryTrip = pines.find(f => toMin(f.time) >= thresh);
+    if (!ferryTrip) continue;
+    const ferry = ferryTrip.time;
     const layover = toMin(ferry) - toMin(sayArr);
     if (layover > MAX_LAYOVER_MIN) continue;
     const pinesArrRaw = addMin(ferry, FERRY_MIN);
@@ -466,7 +468,7 @@ function buildToPines(outbound: Journey[], ferries: FerryTrip[], dow: number, da
         name: l.train,
       })),
       { kind: 'bus',   time: fmt(sayArr), fromTo: 'Sayville Station → Ferry Terminal' },
-      { kind: 'ferry', time: fmt(ferry),  fromTo: 'Sayville → Pines' },
+      { kind: 'ferry', time: fmt(ferry),  fromTo: 'Sayville → Pines', extraStops: ferryTrip.extraStops },
     ];
     result.push({
       id: ++id,
@@ -485,12 +487,13 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number, date
   const hasPenn = dayFerries.some(f => f.direction === 'pines_to_sayville');
   const pennDeps = dayFerries
     .filter(f => hasPenn ? f.direction === 'pines_to_sayville' : f.direction === 'unknown')
-    .map(f => f.departureTime.slice(0, 5))
-    .sort();
+    .map(f => ({ time: f.departureTime.slice(0, 5), extraStops: !!f.extraStops }))
+    .sort((a, b) => a.time.localeCompare(b.time));
   const trains = [...inbound].filter(j => !j.canceled).sort((a, b) => toMin(a.depart.slice(0, 5)) - toMin(b.depart.slice(0, 5)));
   let id = 0;
   const result: Itinerary[] = [];
-  for (const ferryDep of pennDeps) {
+  for (const ferryTrip of pennDeps) {
+    const ferryDep = ferryTrip.time;
     const sayArrRaw = addMin(ferryDep, FERRY_MIN);
     const thresh = toMin(sayArrRaw) + WALK_MIN;
     const train = trains.find(j => toMin(j.depart.slice(0, 5)) >= thresh);
@@ -500,7 +503,7 @@ function buildToPenn(inbound: Journey[], ferries: FerryTrip[], dow: number, date
     const total = toMin(train.arrive.slice(0, 5)) - toMin(ferryDep);
     if (total < 60 || total > 240) continue;
     const segments: Segment[] = [
-      { kind: 'ferry', time: fmt(ferryDep),  fromTo: 'Pines → Sayville' },
+      { kind: 'ferry', time: fmt(ferryDep),  fromTo: 'Pines → Sayville', extraStops: ferryTrip.extraStops },
       { kind: 'bus',   time: fmt(sayArrRaw), fromTo: 'Ferry Terminal → Sayville Station' },
       ...train.legs.map(l => ({
         kind: 'train' as const,
@@ -1349,7 +1352,7 @@ function SegmentSprite({ kind, animated }: { kind: Segment['kind']; animated: bo
 function buildShareText(direction: 'to-pines' | 'to-penn', dateLabel: string, segments: Segment[]): string {
   const dirLabel = direction === 'to-pines' ? 'To the Pines' : 'From the Pines';
   const bullets = segments.map(s => {
-    const tail = s.name ? ` (${s.name})` : '';
+    const tail = s.name ? ` (${s.name})` : s.extraStops ? ' ▲' : '';
     return `• ${s.time} — ${s.fromTo}${tail}`;
   }).join('\n');
   return `${dateLabel}\n${dirLabel}\n\n${bullets}\n\ngopines.gay`;
@@ -1426,6 +1429,11 @@ function ItineraryRow({ it, direction, dateLabel, dateStr, originLabel }: {
                   {seg.name && (
                     <div style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', marginTop: 1 }}>
                       Train {seg.name}
+                    </div>
+                  )}
+                  {seg.extraStops && (
+                    <div style={{ fontFamily: F.hand, fontSize: 12, color: '#9b958c', marginTop: 1 }}>
+                      ▲ stops at Cherry Grove
                     </div>
                   )}
                 </div>
