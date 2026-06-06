@@ -64,9 +64,16 @@ The dev server proxies `/api/*` to the live `gopines.web.app` functions, so you 
    - Day-of-week: ferries run on the right weekday for the selected date (`daysOfWeek` from the parser)
    - Effective dates: `effectiveStart` / `effectiveEnd` from the PDF's STARTS/ENDS annotations are honored
 4. Surviving trips are classified:
-   - **best** (green) — total `< 3h` AND Sayville layover `≥ 20 min`
+   - **best** (green) — total `< 3h` AND Sayville layover `≥ 20 min`, **and** it is
+     the single most efficient (lowest total) such trip for its ferry departure
    - **risky** (amber) — total `< 3h` AND Sayville layover `< 20 min` (rushed transfer)
-   - **long** (red) — total `≥ 3h`
+   - **long** (red) — total `≥ 3h`, **or** a comfortable trip that catches the same
+     ferry as a more efficient "best" trip (longer than best, but not risky)
+
+   "Best" means best: for each ferry departure only one trip is "best" — the one that
+   leaves Penn latest while still making that boat. Other comfortable trips that catch
+   the same ferry (and would otherwise just mean waiting longer at Sayville) are filed
+   under "long" rather than shown as best.
 
    Tunable in `src/App.tsx` via `AVOID_TOTAL_MIN`, `COMFORT_LAYOVER_MIN`, `MAX_LAYOVER_MIN`.
 
