@@ -5,6 +5,9 @@
     "node": "22"
   },
   "main": "index.js",
+  "scripts": {
+    "test": "node --test"
+  },
   "dependencies": {
     "@google-cloud/vision": "^4.3.0",
     "firebase-admin": "^13.0.0",
